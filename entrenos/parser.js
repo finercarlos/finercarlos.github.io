@@ -2,6 +2,8 @@
    Devuelve una estructura editable: secciones -> partes (dinámicas) -> bloques -> series. */
 (function (root) {
   'use strict';
+  // Los multisaltos no se miden salvo que se indique lo contrario
+  const MEASURE_JUMPS = false;
 
   const WORD_NUM = { un: 1, una: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, par: 2 };
   const WORD_DIST = {
@@ -375,7 +377,7 @@
       const cc = clean(c.replace(/^\s*[-•]\s*/, ''));
       if (!cc) return;
       const small = cc.match(/\b(\d{1,2}(?:\s*-\s*\d{1,2})+)\b(?!\s*['"])/);
-      if (/salto/i.test(cc) && small) {
+      if (MEASURE_JUMPS && /salto/i.test(cc) && small) {
         const name = (cc.match(/^[^(.\n]+/) || ['Saltos'])[0].trim().replace(/\s*\d.*$/, '');
         const ns = small[1].split('-').map(s => +s.trim()).filter(n => n > 0 && n < 20);
         items.push({ title: name || 'Multisaltos', text: cc, blocks: [{ optional: false, restAfter: '', reps: ns.map(n => ({ dist: null, label: n + (n === 1 ? ' salto' : ' saltos'), unit: 'm', rest: '', value: '', status: 'pending', optional: false })) }] });
