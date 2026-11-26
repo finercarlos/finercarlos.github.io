@@ -82,14 +82,21 @@
   };
 
   // ---------- construir el entreno a partir de lo elegido ----------
-  function buildWorkout(secIdx) {
+  function buildWorkout(secIdx, varIdx) {
     const p = draft.parsed; const sec = p.sections[secIdx];
+    const variant = varIdx != null && sec.variants ? sec.variants[varIdx] : null;
     const parts = [];
     let notes = sec.notes.slice();
-    if (p.common && draft.includeCommon && p.common.parts.length) parts.push(...JSON.parse(JSON.stringify(p.common.parts)));
+    if (p.common && draft.includeCommon) {
+      parts.push(...JSON.parse(JSON.stringify(p.common.parts)));
+      notes = p.common.notes.concat(notes);
+    }
     parts.push(...JSON.parse(JSON.stringify(sec.parts)));
+    if (variant) parts.forEach(pt => pt.blocks.forEach(b => b.reps.forEach(r => {
+      if (r.dist != null && variant.map[r.dist] != null) { const nd = variant.map[r.dist]; r.label = r.label.replace(/^\d+/, String(nd)); r.dist = nd; }
+    })));
     if (!parts.some(x => x.blocks.length)) parts.push({ title: 'Series', text: '', blocks: [{ optional: false, restAfter: '', reps: [] }] });
-    return { id: null, date: draft.date, group: sec.title, raw: draft.raw, notes, parts, comment: '', rpe: null };
+    return { id: null, date: draft.date, group: sec.title + (variant ? ' · ' + variant.name : ''), raw: draft.raw, notes, parts, comment: '', rpe: null };
   }
 
   // ---------- vistas ----------
@@ -127,7 +134,11 @@
       p.sections.forEach((s, i) => {
         const nReps = s.parts.reduce((a, x) => a + x.blocks.reduce((b, bl) => b + bl.reps.filter(r => !r.optional && !bl.optional).length, 0), 0);
         const desc = s.parts.map(x => x.title + (x.blocks.length ? ': ' + summarizeStructure(x) : '')).join(' · ');
-        h += `<button class="opt" data-act="choose" data-i="${i}"><b>${esc(prettyTitle(s.title))}</b><span class="small muted">${esc(desc || 'Sin series detectadas — podrás añadirlas a mano')}</span><br><span class="pill" style="margin-top:8px">${nReps} series</span></button>`;
+        const opts = [{ v: '', name: s.variants && s.variants.length ? 'General' : '' }].concat((s.variants || []).map((vv, k) => ({ v: k, name: vv.name, map: vv.map })));
+        opts.forEach(o => {
+          const sub = o.map ? 'Cambia ' + Object.keys(o.map).map(k => k + '→' + o.map[k]).join(', ') : desc;
+          h += `<button class="opt" data-act="choose" data-i="${i}" data-v="${o.v}"><b>${esc(prettyTitle(s.title))}${o.name ? ' · ' + esc(o.name) : ''}</b><span class="small muted">${esc(sub || 'Sin series detectadas — podrás añadirlas a mano')}</span><br><span class="pill" style="margin-top:8px">${nReps} series</span></button>`;
+        });
       });
       $app.innerHTML = h;
       return;
@@ -136,27 +147,29 @@
   }
 
   function summarizeStructure(part) {
+    const one = bl => {
+      const inner = bl.reps.filter(r => !r.optional);
+      const optR = bl.reps.length - inner.length;
+      const labs = inner.map(r => r.label);
+      if (labs.length > 1 && labs.every(l => l === labs[0])) return labs.length + '×' + labs[0] + (optR ? '(+' + optR + ')' : '');
+      return labs.join('-') + (optR ? '(+' + optR + ')' : '');
+    };
     const bl = part.blocks.filter(b => !b.optional);
     const optB = part.blocks.length - bl.length;
     if (!bl.length) return '';
-    const inner = bl[0].reps.filter(r => !r.optional);
-    const optR = bl[0].reps.length - inner.length;
-    const labs = inner.map(r => r.label);
-    let s;
-    if (labs.length && labs.every(l => l === labs[0])) s = labs.length + '×' + labs[0] + (optR ? '(+' + optR + ')' : '');
-    else s = labs.join('-');
-    if (bl.length > 1 || optB) s = bl.length + (optB ? '-' + (bl.length + optB) : '') + '×(' + s + ')';
-    return s;
+    const strs = bl.map(one);
+    if (strs.every(x => x === strs[0])) return bl.length > 1 || optB ? bl.length + (optB ? '-' + (bl.length + optB) : '') + '×(' + strs[0] + ')' : strs[0];
+    return strs.join(' / ');
   }
 
   function repRow(r, p, b, i) {
     const cls = ['rep', r.status === 'locked' ? 'locked' : '', r.status === 'skipped' ? 'skipped' : '', r.optional ? 'opt-rep' : ''].join(' ');
     const dis = r.status !== 'pending' ? 'disabled' : '';
     const unitLab = r.unit === 'm' ? 'metros' : (r.dist ? 'm' : '');
-    const ph = r.status === 'skipped' ? (r.value ? 'Incompleta' : 'No hecha') : (r.unit === 'm' ? 'distancia (m)' : (r.dist >= 400 ? 'tiempo · ej 2,45' : r.dist <= 150 ? 'tiempo · ej 6,85' : 'tiempo · ej 52,4'));
+    const ph = r.status === 'skipped' ? (r.value ? 'Incompleta' : 'No hecha') : (r.unit === 'm' ? 'distancia (m)' : (r.dist >= 400 ? 'tiempo · ej 1,25' : r.dist <= 150 ? 'tiempo · ej 6,85' : 'tiempo · ej 52,4'));
     const lab = S.edit
-      ? `<input class="editlab" inputmode="numeric" data-act="editlab" data-p="${p}" data-b="${b}" data-r="${i}" value="${esc(r.label)}">`
-      : `<div class="lab">${esc(r.dist ? r.dist : r.label.split(' ')[0])}<small>${esc(r.dist ? unitLab : r.label.split(' ').slice(1).join(' '))}${r.optional ? ' · opc.' : ''}</small></div>`;
+      ? `<input class="editlab" inputmode="text" data-act="editlab" data-p="${p}" data-b="${b}" data-r="${i}" value="${esc(r.label)}">`
+      : `<div class="lab">${esc(r.dist ? r.dist : r.label.split(' ')[0])}<small>${esc(r.dist ? unitLab + ' ' + r.label.replace(/^[\d.,]+\s*/, '') : r.label.split(' ').slice(1).join(' '))}${r.optional ? ' · opc.' : ''}</small></div>`;
     const btns = S.edit
       ? `<button class="ib del" data-act="delrep" data-p="${p}" data-b="${b}" data-r="${i}" aria-label="Borrar serie">${ICON.trash}</button>`
       : `<button class="ib lock" data-act="lock" data-p="${p}" data-b="${b}" data-r="${i}" aria-label="${r.status === 'locked' ? 'Desbloquear' : 'Bloquear'}">${r.status === 'locked' ? ICON.unlock : ICON.lock}</button>
@@ -188,9 +201,11 @@
     const pr = progress(w);
     let h = `<div class="sumbar"><span>${pr.done}/${pr.tot}</span><div class="bar"><i style="width:${pr.tot ? pr.done / pr.tot * 100 : 0}%"></i></div>
       <input type="date" id="fdate" value="${esc(w.date)}" style="background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 6px;font-size:13px"></div>`;
+    if (!S.edit && !draft.editingId) h += `<p class="tiny muted" style="margin:0 0 10px">¿Algo no cuadra con lo que dijo el entrenador? Pulsa <b style="color:var(--acc)">Editar</b> para cambiar distancias, descansos, series o bloques. Toca el texto gris de cada parte para leerlo entero.</p>`;
+    if (S.edit) h += `<div class="card small" style="border-color:var(--acc)">Modo edición: toca la distancia para cambiarla, 🗑 para borrar una serie, ⧉ para duplicar un bloque. Pulsa <b>Hecho</b> al terminar.</div>`;
     if (w.notes && w.notes.length) h += '<ul class="notes">' + w.notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>';
     w.parts.forEach((part, p) => {
-      h += `<div class="part"><h3>${esc(part.title)}</h3>`;
+      h += `<div class="part">` + (S.edit ? `<input class="field" style="font-weight:700;color:var(--acc2);margin-bottom:6px" data-act="edittitle" data-p="${p}" value="${esc(part.title)}">` : `<h3>${esc(part.title)}</h3>`);
       if (part.text) h += `<div class="parttxt clamp" data-act="expand">${esc(part.text)}</div>`;
       const multi = part.blocks.length > 1;
       part.blocks.forEach((bl, b) => {
@@ -378,12 +393,13 @@
         draft.raw = document.getElementById('raw').value;
         if (!draft.raw.trim()) { toast('Pega primero el entreno'); return; }
         draft.parsed = TrainParser.parseWorkout(draft.raw);
-        if (draft.parsed.sections.length === 1 && !(draft.parsed.common && draft.parsed.common.parts.length)) { draft.workout = buildWorkout(0); draft.stage = 'form'; }
+        const ps = draft.parsed.sections;
+        if (ps.length === 1 && !(ps[0].variants || []).length && !(draft.parsed.common && (draft.parsed.common.parts.length || draft.parsed.common.notes.length))) { draft.workout = buildWorkout(0); draft.stage = 'form'; }
         else draft.stage = 'choose';
         persistDraft(); render(); window.scrollTo(0, 0); break;
       }
       case 'back-paste': draft.stage = 'paste'; persistDraft(); render(); break;
-      case 'choose': draft.workout = buildWorkout(+el.dataset.i); draft.stage = 'form'; S.edit = false; persistDraft(); render(); window.scrollTo(0, 0); break;
+      case 'choose': draft.workout = buildWorkout(+el.dataset.i, el.dataset.v === '' ? null : +el.dataset.v); draft.stage = 'form'; S.edit = false; persistDraft(); render(); window.scrollTo(0, 0); break;
       case 'expand': el.classList.toggle('clamp'); break;
       case 'toggle-edit': S.edit = !S.edit; render(); break;
       case 'lock': lockRep(el); break;
@@ -450,6 +466,7 @@
       const { rep } = getRep(el); rep.label = el.value;
       const n = parseFloat(el.value); if (rep.unit !== 'm') rep.dist = isNaN(n) ? null : n;
       persistDraft();
+    } else if (a === 'edittitle') { draft.workout.parts[+el.dataset.p].title = el.value; persistDraft();
     } else if (a === 'editrest') { const { rep } = getRep(el); rep.rest = el.value; persistDraft(); }
   });
   $app.addEventListener('change', e => {
