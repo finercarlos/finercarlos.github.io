@@ -1,9 +1,10 @@
-const CACHE = 'entrenos-v4';
-const ASSETS = ['./', 'index.html', 'app.js', 'parser.js', 'manifest.json', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const CACHE = 'entrenos-v5';
+const ASSETS = ['./', 'index.html', 'app.js?v=5', 'parser.js?v=5', 'gym-parser.js?v=5', 'manifest.json', 'vendor/anthropic-sdk-1.7.0.mjs', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))); self.clients.claim(); });
-// Red primero (para recibir actualizaciones), caché si no hay conexión
+// Red primero sin caché HTTP (para recibir siempre la última versión); caché si no hay conexión
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
-  e.respondWith(fetch(e.request).then(r => { const cp = r.clone(); caches.open(CACHE).then(c => c.put(e.request, cp)); return r; }).catch(() => caches.match(e.request, { ignoreSearch: true })));
+  const req = e.request;
+  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  e.respondWith(fetch(req.url, { cache: 'no-cache' }).then(r => { const cp = r.clone(); caches.open(CACHE).then(c => c.put(req, cp)); return r; }).catch(() => caches.match(req, { ignoreSearch: true })));
 });
