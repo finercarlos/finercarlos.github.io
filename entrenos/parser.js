@@ -413,7 +413,7 @@
     return { common, sections: out };
   }
 
-  const api = { parseWorkout, parsePart, findTokens };
+  const api = { parseWorkout, parsePart, findTokens, norm };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TrainParser = api;
 })(this);
