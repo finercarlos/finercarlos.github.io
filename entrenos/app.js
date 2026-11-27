@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '5';
+  const VERSION = '6';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -448,7 +448,7 @@
       };
     });
     const parts = [];
-    if (g.drags) {
+    if (false && g.drags) {
       const d = g.drags;
       parts.push({
         title: 'Arrastres', optional: d.optional, text: '', blocks: Array.from({ length: d.blocks }, (_, bi) => ({
@@ -457,7 +457,7 @@
         }))
       });
     }
-    return { type: 'gym', id: null, date: draft.date, group: g.title, raw: draft.raw, notes: g.notes, pct: g.pct, scheme, lifts, applied, parts, comment: '', rpe: null };
+    return { type: 'gym', id: null, date: draft.date, group: g.title, raw: draft.raw, notes: g.notes, endNotes: g.dragLines || [], pct: g.pct, scheme, lifts, applied, parts, comment: '', rpe: null };
   }
 
   function renderGymForm() {
@@ -513,8 +513,12 @@
       h += `</div>`;
     }
     h += renderParts(w);
+    h += endNotesHtml(w);
     h += formFooter(w);
     $app.innerHTML = h;
+  }
+  function endNotesHtml(w) {
+    return w.endNotes && w.endNotes.length ? '<div class="part"><h3>Arrastres</h3><ul class="notes">' + w.endNotes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul></div>' : '';
   }
 
   function gymLock(el) {
@@ -603,7 +607,7 @@
       }));
       h += '</table></div>';
     }
-    return h;
+    return h + endNotesHtml(w);
   }
   function gymShareText(w) {
     let t = '';
