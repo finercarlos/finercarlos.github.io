@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '8';
+  const VERSION = '9';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -244,7 +244,7 @@
       : `<button class="btn block" data-act="toggle-edit" style="margin-bottom:12px">✏️ Editar / corregir entreno</button>`;
   }
   function formFooter(w) {
-    return `<div class="card"><div class="small muted" style="margin-bottom:6px">Esfuerzo percibido (RPE)</div><div class="rpe">${[...Array(10)].map((_, i) => `<button data-act="rpe" data-v="${i + 1}" class="${w.rpe === i + 1 ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
+    return `<div class="card"><div class="small muted" style="margin-bottom:6px">Esfuerzo percibido (RPE) <b style="color:var(--acc)">· obligatorio</b> <span class="tiny">1 muy suave · 5 moderado · 8 duro · 10 máximo</span></div><div class="rpe">${[...Array(10)].map((_, i) => `<button data-act="rpe" data-v="${i + 1}" class="${w.rpe === i + 1 ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
       <div class="small muted" style="margin:12px 0 6px">Sensaciones / notas</div><textarea class="field" id="comment" style="min-height:70px" placeholder="Clavos, viento, molestias, cargas, ritmos que te dio el entrenador…">${esc(w.comment)}</textarea></div>
       <button class="btn pri block" data-act="savew">Guardar entrenamiento</button>
       <button class="btn ghost block" data-act="discard" style="margin-top:8px;color:var(--mut)">Descartar</button>`;
@@ -1066,6 +1066,7 @@
       case 'quicksave': {
         const txt = (document.getElementById('quick').value || '').trim();
         if (!txt) { toast('Escribe qué hiciste'); break; }
+        if (!draft.quickRpe) { toast('Elige el esfuerzo (RPE) del 1 al 10'); const el = document.querySelector('[data-act=quickrpe]'); if (el) el.parentNode.classList.add('need'); break; }
         const w = quickWorkout(txt, draft.quickRpe); w.id = uid(); w.savedAt = Date.now();
         workouts.push(w); persistW(); draft.quick = ''; draft.quickRpe = null; persistDraft();
         S.view = 'detail'; S.detailId = w.id; render(); window.scrollTo(0, 0); toast('Apuntado ✓ (puedes editarlo)'); break;
@@ -1179,6 +1180,7 @@
 
   function saveWorkout() {
     const w = draft.workout;
+    if (!w.rpe) { toast('Pon el esfuerzo (RPE) antes de guardar'); const el = document.querySelector('.rpe'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('need'); } return; }
     // bloquear automáticamente lo que tenga valor válido
     let missing = 0;
     (w.lifts || []).forEach(l => l.sets.forEach(x => {
