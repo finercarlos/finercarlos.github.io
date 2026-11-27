@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '9';
+  const VERSION = '10';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -137,7 +137,9 @@
         </div>
         <div class="card" style="margin-top:16px"><b>✍️ ¿Entrenaste sin mensaje del entrenador?</b>
           <p class="small muted" style="margin:4px 0 8px">Cuéntamelo en una frase y lo apunto. Ej: <i>"Rodaje 30 min y 6x200 a 31"</i> o <i>"Gym: sentadilla y press banca, piernas cargadas"</i>.</p>
-          <textarea class="field" id="quick" style="min-height:64px" placeholder="Qué hiciste…">${esc(draft.quick || '')}</textarea>
+          <div style="position:relative"><textarea class="field" id="quick" style="min-height:64px;padding-right:56px" placeholder="Qué hiciste… (o pulsa el micro y dímelo)">${esc(draft.quick || '')}</textarea>
+          <button class="ib mic ${S.listening ? 'on' : ''}" data-act="mic" aria-label="Dictar" style="position:absolute;right:6px;top:6px">${S.listening ? '■' : '🎤'}</button></div>
+          ${S.listening ? '<div class="tiny" style="color:var(--bad);margin-top:4px">● Escuchando… habla y pulsa ■ al terminar</div>' : ''}
           <div class="rpe" style="margin:8px 0">${[...Array(10)].map((_, i) => `<button data-act="quickrpe" data-v="${i + 1}" class="${draft.quickRpe === i + 1 ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
           <button class="btn block" data-act="quicksave">Apuntar (fecha de arriba)</button></div>
         <p class="muted small" style="margin-top:14px">Consejo: copia el mensaje entero de WhatsApp. Las secciones en mayúsculas (<b>_*VELOCIDAD-VALLAS*_</b>) se convierten en opciones y cada <b>*Dinámica*</b> en bloques para rellenar.</p>`;
@@ -998,6 +1000,32 @@
     return h;
   }
 
+  // ---------- dictado por voz ----------
+  let rec = null;
+  function toggleMic() {
+    if (S.listening && rec) { rec.stop(); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { micFallback(); return; }
+    try {
+      rec = new SR(); rec.lang = 'es-ES'; rec.interimResults = true; rec.continuous = true;
+      const ta = document.getElementById('quick');
+      const before = (ta.value.trim() ? ta.value.trim() + ' ' : '');
+      rec.onresult = e => {
+        let txt = ''; for (let k = 0; k < e.results.length; k++) txt += e.results[k][0].transcript;
+        draft.quick = before + txt.trim(); persistDraft();
+        const t = document.getElementById('quick'); if (t) t.value = draft.quick;
+      };
+      rec.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') micFallback(); else if (e.error !== 'aborted' && e.error !== 'no-speech') toast('No se pudo dictar (' + e.error + ')'); };
+      rec.onend = () => { S.listening = false; rec = null; if (S.view === 'input' && draft.stage === 'paste') render(); };
+      rec.start(); S.listening = true; render();
+    } catch (err) { micFallback(); }
+  }
+  function micFallback() {
+    S.listening = false;
+    toast('Usa el micro del teclado: toca el cuadro y pulsa 🎤 abajo a la derecha del teclado');
+    const t = document.getElementById('quick'); if (t) t.focus();
+  }
+
   // ---------- entreno libre (sin mensaje) ----------
   function quickWorkout(text, rpe) {
     const t = TrainParser.norm(text);
@@ -1062,6 +1090,7 @@
       case 'settings': S.view = 'settings'; render(); window.scrollTo(0, 0); break;
       case 'wtag': S.tagWeek = S.tagWeek === el.dataset.k ? null : el.dataset.k; render(); break;
       case 'setwtag': { const k = el.dataset.k; if (el.dataset.t) weekTags[k] = el.dataset.t; else delete weekTags[k]; save(LS_WK, weekTags); S.tagWeek = null; render(); break; }
+      case 'mic': toggleMic(); break;
       case 'quickrpe': draft.quickRpe = draft.quickRpe === +el.dataset.v ? null : +el.dataset.v; persistDraft(); render(); break;
       case 'quicksave': {
         const txt = (document.getElementById('quick').value || '').trim();
