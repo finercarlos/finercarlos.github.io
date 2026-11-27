@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '7';
+  const VERSION = '8';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -22,6 +22,9 @@
   let settings = load(LS_SET, { apiKey: '' });
   let calc = load(LS_CALC, { mode: 't2p', dist: '300', time: '45', pace: '15', unit: '100', ex: '', w: '', r: '' });
   function persistRM() { save(LS_RM, rms); }
+  const LS_WK = 'entrenos.weeks.v1';
+  let weekTags = load(LS_WK, null);
+  if (!weekTags) { weekTags = {}; weekTags[weekStart(todayISO())] = 'C1'; save(LS_WK, weekTags); }
 
   function newDraft() { return { stage: 'paste', raw: '', date: todayISO(), parsed: null, includeCommon: true, workout: null, editingId: null }; }
   function persistDraft() { save(LS_D, draft); }
@@ -132,6 +135,11 @@
           <button class="btn" data-act="photo">📷 Foto</button>
           <button class="btn pri grow" data-act="analyze">Analizar</button>
         </div>
+        <div class="card" style="margin-top:16px"><b>✍️ ¿Entrenaste sin mensaje del entrenador?</b>
+          <p class="small muted" style="margin:4px 0 8px">Cuéntamelo en una frase y lo apunto. Ej: <i>"Rodaje 30 min y 6x200 a 31"</i> o <i>"Gym: sentadilla y press banca, piernas cargadas"</i>.</p>
+          <textarea class="field" id="quick" style="min-height:64px" placeholder="Qué hiciste…">${esc(draft.quick || '')}</textarea>
+          <div class="rpe" style="margin:8px 0">${[...Array(10)].map((_, i) => `<button data-act="quickrpe" data-v="${i + 1}" class="${draft.quickRpe === i + 1 ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
+          <button class="btn block" data-act="quicksave">Apuntar (fecha de arriba)</button></div>
         <p class="muted small" style="margin-top:14px">Consejo: copia el mensaje entero de WhatsApp. Las secciones en mayúsculas (<b>_*VELOCIDAD-VALLAS*_</b>) se convierten en opciones y cada <b>*Dinámica*</b> en bloques para rellenar.</p>`;
       return;
     }
@@ -302,9 +310,10 @@
       const days = new Set(items.map(w => parseISO(w.date).getDay()));
       const sd = SERIES_DAYS.map(d => `<span class="pill ${days.has(d) ? 'ok' : ''}">${DAYS[d].charAt(0).toUpperCase()} ${days.has(d) ? '✓' : '·'}</span>`).join(' ');
       h += `<div class="week"><div class="weekh"><b>Semana ${isoWeekNum(k)} · ${start.getDate()} ${MONTHS[start.getMonth()]} – ${end.getDate()} ${MONTHS[end.getMonth()]}</b><span>${sd}</span></div>
+        <div style="margin:-2px 2px 8px">${(() => { const ti = weekTagInfo(k); return `<button class="pill ${ti && ti.tag !== 'D' ? 'acc' : ''}" data-act="wtag" data-k="${k}" style="${ti && ti.auto ? 'border-style:dashed;opacity:.75' : ''}">${ti ? TAGS[ti.tag] + (ti.auto ? ' ?' : '') : 'Marcar carga/descarga'}</button>`; })()}${S.tagWeek === k ? tagPicker(k) : ''}</div>
         <div class="small muted" style="margin:-4px 2px 8px">${items.length} sesión${items.length > 1 ? 'es' : ''}${km ? ' · ' + (km / 1000).toFixed(2).replace('.', ',') + ' km de series' : ''}</div>`;
       items.forEach(w => {
-        const sums = gymSummary(w) + w.parts.map(p => { const s = partSummary(p); return s ? '<div>' + esc(p.title) + ': ' + esc(s) + '</div>' : ''; }).join('');
+        const sums = (w.type === 'free' ? '<div>' + esc(w.raw.length > 110 ? w.raw.slice(0, 108) + '…' : w.raw) + '</div>' : '') + gymSummary(w) + w.parts.map(p => { const s = partSummary(p); return s ? '<div>' + esc(p.title) + ': ' + esc(s) + '</div>' : ''; }).join('');
         h += `<button class="wo" data-act="open" data-id="${w.id}"><div class="d">${fmtDate(w.date)}${w.rpe ? ' · RPE ' + w.rpe : ''}</div><div class="g">${w.type === 'gym' ? '🏋 ' : ''}${esc(w.type === 'gym' ? w.group : prettyTitle(w.group))}</div><div class="s">${sums || 'Sin tiempos'}</div></button>`;
       });
       h += '</div>';
@@ -328,6 +337,7 @@
     else h += `<div class="stat"><div><b>${reps.length}</b><span>series hechas</span></div><div><b>${(meters(w) / 1000).toFixed(2).replace('.', ',')} km</b><span>volumen</span></div><div><b>${w.rpe || '—'}</b><span>RPE</span></div></div>`;
     if (w.comment) h += `<ul class="notes"><li>${esc(w.comment)}</li></ul>`;
     if (w.type === 'gym') h += gymDetailHtml(w);
+    if (w.type === 'free') h += `<div class="card"><div class="small muted">Lo que me contaste</div><div>${esc(w.raw)}</div></div>`;
     w.parts.forEach(part => {
       h += `<div class="card"><h3>${esc(part.title)}</h3>`;
       part.blocks.forEach((bl, b) => {
@@ -369,7 +379,8 @@
 
   // ---------- progresión ----------
   function renderProgress() {
-    $title.innerHTML = 'Progresión<small>Marcas por distancia y ejercicio</small>';
+    $title.innerHTML = 'Progreso<small>Forma, ciclos y marcas</small>';
+    const top = formHtml() + cyclesHtml() + '<h2 style="margin-top:22px">Por distancia y ejercicio</h2>';
     const series = {}; // label -> [{date, vals}]
     workouts.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(w => {
       const per = {};
@@ -385,9 +396,9 @@
       Object.keys(per).forEach(k => (series[k] = series[k] || []).push({ date: w.date, id: w.id, group: w.group, unit: per[k].unit, dist: per[k].dist, vals: per[k].vals }));
     });
     const keys = Object.keys(series).sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
-    if (!keys.length) { $app.innerHTML = '<div class="empty">Cuando guardes entrenos con tiempos verás aquí tu evolución por distancia.</div>'; return; }
+    if (!keys.length) { $app.innerHTML = top + '<p class="small muted">Cuando guardes entrenos con tiempos verás aquí tu evolución por distancia.</p>'; return; }
     if (!S.prog || !series[S.prog]) S.prog = keys[0];
-    let h = '<div class="chips">' + keys.map(k => `<button class="chip ${k === S.prog ? 'on' : ''}" data-act="prog" data-k="${esc(k)}">${esc(k)}</button>`).join('') + '</div>';
+    let h = top + '<div class="chips">' + keys.map(k => `<button class="chip ${k === S.prog ? 'on' : ''}" data-act="prog" data-k="${esc(k)}">${esc(k)}</button>`).join('') + '</div>';
     const rows = series[S.prog]; const isM = rows[0].unit === 'm' || rows[0].unit === 'kg'; const U = rows[0].unit === 'kg' ? ' kg' : ' m';
     const pts = rows.map(r => ({ d: r.date, best: isM ? Math.max(...r.vals) : Math.min(...r.vals), avg: r.vals.reduce((a, b) => a + b, 0) / r.vals.length, n: r.vals.length, id: r.id, dist: r.dist }));
     const allBest = isM ? Math.max(...pts.map(p => p.best)) : Math.min(...pts.map(p => p.best));
@@ -476,7 +487,8 @@
         const ref = l.ref || l.name; const e = rmFor(ref); const tg = liftTarget(w, l);
         const pct = l.pct != null && l.pct !== '' ? l.pct : w.pct;
         h += `<div class="blk">`;
-        h += S.edit ? `<input class="field" style="font-weight:800;margin-bottom:6px" data-act="gname" data-i="${i}" value="${esc(l.name)}">` : `<div class="row" style="justify-content:space-between"><b style="font-size:18px">${esc(l.name)}</b>${tg != null ? `<span class="pill acc">${fmtKg(tg)} kg</span>` : ''}</div>`;
+        const allDone = l.sets.length && l.sets.every(x => x.status !== 'pending');
+        h += S.edit ? `<input class="field" style="font-weight:800;margin-bottom:6px" data-act="gname" data-i="${i}" value="${esc(l.name)}">` : `<div class="row" style="justify-content:space-between"><b style="font-size:18px;${allDone ? 'text-decoration:line-through;color:var(--ok)' : ''}">${esc(l.name)}</b><span class="row" style="gap:6px"><button class="chip ${allDone ? 'on' : ''}" style="padding:6px 10px;font-size:13px" data-act="gall" data-i="${i}">${allDone ? '✓ hecho' : '☐ todo'}</button><button class="chip ${S.gEdit === i ? 'on' : ''}" style="padding:6px 10px;font-size:13px" data-act="gedit" data-i="${i}">✏️</button></span></div>`;
         if (e && e.rm) h += `<div class="small muted" style="margin:2px 0 4px">RM${nk(ref) !== nk(l.name) ? ' de ' + esc(e.name) : ''}: ${fmtKg(e.rm)} kg → ${pct || '?'}% = <b style="color:var(--txt)">${tg != null ? fmtKg(tg) + ' kg' : '—'}</b> <button class="addrep" style="padding:0 0 0 6px" data-act="grm" data-i="${i}">cambiar RM</button></div>`;
         else h += `<button class="addrep" data-act="grm" data-i="${i}">+ Poner mi RM de ${esc(e ? e.name : ref)}</button>`;
         if (S.edit) {
@@ -484,19 +496,21 @@
             % propio <input class="field" style="width:64px;padding:6px" inputmode="decimal" data-act="glpct" data-i="${i}" value="${esc(l.pct == null ? '' : l.pct)}" placeholder="${esc(w.pct || '')}"></div>`;
         }
         if (l.detail) h += `<div class="parttxt clamp" data-act="expand">${esc(l.detail)}</div>`;
+        if (S.gEdit === i) h += `<div class="tiny" style="color:var(--acc2);margin-top:6px">Toca una serie para cambiar el peso o las repeticiones, o marcarla como no hecha.</div>`;
+        h += `<div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px">`;
         l.sets.forEach((x, j) => {
-          const cls = ['rep', x.status === 'locked' ? 'locked' : '', x.status === 'skipped' ? 'skipped' : ''].join(' ');
-          const dis = x.status !== 'pending' && !S.edit ? 'disabled' : '';
-          const btns = S.edit ? `<button class="ib del" data-act="gdel" data-i="${i}" data-j="${j}" aria-label="Borrar serie">${ICON.trash}</button>`
-            : `<button class="ib lock" data-act="glock" data-i="${i}" data-j="${j}">${x.status === 'locked' ? ICON.unlock : ICON.lock}</button><button class="ib skip ${x.status === 'skipped' ? 'on' : ''}" data-act="gskip" data-i="${i}" data-j="${j}">${ICON.x}</button>`;
-          h += `<div class="${cls}"><div class="lab">${esc(x.reps)}<small>serie ${x.n}${x.t != null ? ' · tanda ' + (x.t + 1) : ''}</small></div>
-            <input class="t" type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" data-act="gval" data-i="${i}" data-j="${j}" id="gv-${i}-${j}" value="${esc(x.value)}" placeholder="${x.status === 'skipped' ? 'No hecha' : (tg != null ? fmtKg(tg) + ' kg' : 'kg')}" ${dis}>${btns}</div>`;
+          const kg = x.value !== '' && x.value != null ? x.value : (tg != null ? fmtKg(tg) : '?');
+          const reps = x.repsDone != null ? x.repsDone : x.reps;
+          const chg = (x.value !== '' && x.value != null && (tg == null || num(x.value) !== tg)) || x.repsDone != null;
+          const st = x.status === 'locked' ? 'done' : x.status === 'skipped' ? 'skip' : '';
+          h += `<button class="gset ${st} ${chg ? 'chg' : ''}" data-act="gset" data-i="${i}" data-j="${j}">${x.status === 'locked' ? '✓ ' : ''}${x.status === 'skipped' ? esc(x.reps) + ' · no hecha' : (kg === '?' ? esc(reps) + ' reps' : esc(reps) + ' × ' + esc(kg) + ' kg')}${x.t != null ? '<small>serie ' + x.n + ' · tanda ' + (x.t + 1) + '</small>' : ''}</button>`;
         });
-        if (S.edit) h += `<button class="addrep" data-act="gadd" data-i="${i}">+ Añadir serie</button> &nbsp; <button class="addrep" style="color:var(--bad)" data-act="gdellift" data-i="${i}">Quitar ejercicio</button>`;
+        h += `</div>`;
+        if (S.edit) h += `<button class="addrep" data-act="gadd" data-i="${i}">+ Añadir serie</button> &nbsp; <button class="addrep" data-act="gdel" data-i="${i}">− Quitar serie</button> &nbsp; <button class="addrep" style="color:var(--bad)" data-act="gdellift" data-i="${i}">Quitar ejercicio</button>`;
         h += `</div>`;
       });
       if (S.edit) h += `<button class="addrep" data-act="gaddlift">+ Añadir ejercicio de fuerza</button>`;
-      h += `<p class="tiny muted">Pulsa 🔒 sin escribir nada y se apunta el peso objetivo. Si hiciste otro peso, escríbelo antes.</p></div>`;
+      h += `<p class="tiny muted">Toca una serie para tacharla. Si hiciste otro peso u otras repeticiones, pulsa ✏️ en el ejercicio y luego la serie.</p></div>`;
     }
     if (w.applied.length) {
       h += `<div class="part"><h3>Ejercicios aplicados</h3>`;
@@ -548,8 +562,26 @@
     const w = draft.workout; const i = +el.dataset.i, j = +el.dataset.j;
     switch (a) {
       case 'glock': gymLock(el); return true;
+      case 'gedit': S.gEdit = S.gEdit === i ? null : i; render(); return true;
+      case 'gall': { const ss = w.lifts[i].sets; const all = ss.every(x => x.status !== 'pending'); ss.forEach(x => { if (all) { if (x.status === 'locked') x.status = 'pending'; } else if (x.status === 'pending') x.status = 'locked'; }); persistDraft(); render(); return true; }
+      case 'gset': {
+        const l = w.lifts[i], x = l.sets[j];
+        if (S.gEdit === i) {
+          const tg = liftTarget(w, l);
+          const cur = (x.value !== '' && x.value != null ? x.value : (tg != null ? fmtKg(tg) : '')) + ' x ' + (x.repsDone != null ? x.repsDone : x.reps);
+          const v = prompt('Serie ' + x.n + (x.t != null ? '.' + (x.t + 1) : '') + ' de ' + l.name + '. Escribe peso x repeticiones (ej. "55 x 8"), solo el peso ("55") o "no" si no la hiciste:', cur);
+          if (v == null) return true;
+          if (/^\s*no/i.test(v)) { x.status = 'skipped'; }
+          else {
+            const m = v.replace(',', '.').match(/^\s*(\d+(?:\.\d+)?)\s*(?:kg)?\s*(?:[x×*]\s*(\d+))?/i);
+            if (!m) { toast('No lo entiendo. Ej: 55 x 8'); return true; }
+            x.value = fmtKg(+m[1]); x.repsDone = m[2] && +m[2] !== +x.reps ? +m[2] : null; x.status = 'locked';
+          }
+        } else x.status = x.status === 'pending' ? 'locked' : 'pending';
+        persistDraft(); render(); return true;
+      }
       case 'gskip': { const x = w.lifts[i].sets[j]; x.status = x.status === 'skipped' ? 'pending' : 'skipped'; persistDraft(); render(); return true; }
-      case 'gdel': w.lifts[i].sets.splice(j, 1); persistDraft(); render(); return true;
+      case 'gdel': w.lifts[i].sets.splice(isNaN(j) ? w.lifts[i].sets.length - 1 : j, 1); persistDraft(); render(); return true;
       case 'gadd': { const ss = w.lifts[i].sets; const last = ss[ss.length - 1] || { n: 0, reps: 10, t: null }; ss.push({ n: last.n + 1, t: null, reps: last.reps, value: '', status: 'pending' }); persistDraft(); render(); return true; }
       case 'gdellift': if (confirm('¿Quitar ' + w.lifts[i].name + '?')) { w.lifts.splice(i, 1); persistDraft(); render(); } return true;
       case 'gaddlift': {
@@ -594,7 +626,7 @@
         h += `<tr><td colspan="3" style="padding-top:10px"><b>${esc(l.name)}</b></td></tr>`;
         l.sets.forEach(x => {
           const v = x.status === 'skipped' ? '<span style="color:var(--bad)">No hecha</span>' : x.status === 'locked' ? '<b>' + esc(x.value) + ' kg</b>' : '<span class="muted">sin dato</span>';
-          h += `<tr><td class="small">Serie ${x.n}${x.t != null ? '.' + (x.t + 1) : ''} · ${esc(x.reps)} reps</td><td class="r">${v}</td><td class="r muted small">${x.target != null ? 'obj. ' + fmtKg(x.target) : ''}</td></tr>`;
+          h += `<tr><td class="small">Serie ${x.n}${x.t != null ? '.' + (x.t + 1) : ''} · ${esc(x.repsDone != null ? x.repsDone + ' de ' + x.reps : x.reps)} reps</td><td class="r">${v}</td><td class="r muted small">${x.target != null ? 'obj. ' + fmtKg(x.target) : ''}</td></tr>`;
         });
       });
       h += '</table></div>';
@@ -611,7 +643,7 @@
   }
   function gymShareText(w) {
     let t = '';
-    (w.lifts || []).forEach(l => { const xs = l.sets.map(x => x.status === 'locked' ? x.reps + '×' + x.value : x.status === 'skipped' ? x.reps + '✗' : null).filter(Boolean); if (xs.length) t += l.name + ': ' + xs.join(' | ') + ' kg\n'; });
+    (w.lifts || []).forEach(l => { const xs = l.sets.map(x => x.status === 'locked' ? (x.repsDone != null ? x.repsDone : x.reps) + '×' + x.value : x.status === 'skipped' ? x.reps + '✗' : null).filter(Boolean); if (xs.length) t += l.name + ': ' + xs.join(' | ') + ' kg\n'; });
     (w.applied || []).forEach(g => g.variants.forEach(v => { const d = v.done.filter(Boolean).length; if (d) t += v.code + ' ' + d + '×' + v.reps + (v.load ? ' (' + v.load + ' kg)' : '') + '\n'; }));
     return t;
   }
@@ -813,6 +845,174 @@
     return text;
   }
 
+  // ---------- ciclos (carga / descarga) ----------
+  const TAGS = { C1: 'Carga 1', C2: 'Carga 2', C3: 'Carga 3', C4: 'Carga 4', D: 'Descarga' };
+  const NEXT_TAG = { C1: 'C2', C2: 'C3', C3: 'D', C4: 'D', D: 'C1' };
+  function addDays(s, n) { const d = parseISO(s); d.setDate(d.getDate() + n); return iso(d); }
+  function weekTagInfo(k, depth) {
+    if (weekTags[k]) return { tag: weekTags[k], auto: false };
+    if ((depth || 0) > 8) return null;
+    const prev = weekTagInfo(addDays(k, -7), (depth || 0) + 1);
+    return prev ? { tag: NEXT_TAG[prev.tag], auto: true } : null;
+  }
+  function weekLabel(k) { const s = parseISO(k), e = parseISO(addDays(k, 6)); return s.getDate() + ' ' + MONTHS[s.getMonth()] + ' – ' + e.getDate() + ' ' + MONTHS[e.getMonth()]; }
+  function isGymW(w) { return w.type === 'gym' || w.kind === 'gym'; }
+
+  // Riegel: convierte una serie a "tiempo equivalente en 800 m" para comparar distancias distintas
+  function eq800(sec, dist) { return sec * Math.pow(800 / dist, 1.06); }
+  function sessionEq(w) {
+    let sw = 0, sv = 0;
+    doneReps(w).forEach(r => {
+      if (r.unit === 'm' || !r.dist || r.dist < 100 || r.dist > 2000 || r.load !== undefined) return;
+      const s = repSec(r); if (!s) return;
+      const wt = r.dist >= 200 && r.dist <= 1000 ? 1 : 0.5;
+      sw += wt; sv += wt * eq800(s, r.dist);
+    });
+    return sw ? sv / sw : null;
+  }
+  function weekStats(k) {
+    const ws = workouts.filter(w => weekStart(w.date) === k);
+    const run = ws.filter(w => !isGymW(w));
+    const eqs = run.map(sessionEq).filter(v => v != null);
+    const rpes = ws.map(w => w.rpe).filter(Boolean);
+    const by = {};
+    run.forEach(w => doneReps(w).forEach(r => { if (r.unit !== 'm' && r.load === undefined) { const key = r.label.replace(/\s.*$/, ''); (by[key] = by[key] || []).push(r); } }));
+    return {
+      n: ws.length, gym: ws.filter(isGymW).length, meters: run.reduce((a, w) => a + meters(w), 0),
+      reps: run.reduce((a, w) => a + doneReps(w).length, 0),
+      rpe: rpes.length ? rpes.reduce((a, b) => a + b, 0) / rpes.length : null,
+      eq: eqs.length ? eqs.reduce((a, b) => a + b, 0) / eqs.length : null, by
+    };
+  }
+  function cyclesList() {
+    const keys = new Set(Object.keys(weekTags)); workouts.forEach(w => keys.add(weekStart(w.date)));
+    const now = weekStart(todayISO()); keys.add(now);
+    const sorted = [...keys].sort(); const out = []; let cur = null; let k = sorted[0]; let guard = 0;
+    while (k <= now && guard++ < 260) {
+      const info = weekTagInfo(k);
+      if (info) {
+        if (info.tag === 'C1' || !cur) { cur = { weeks: [] }; out.push(cur); }
+        cur.weeks.push({ k, tag: info.tag, auto: info.auto, st: weekStats(k) });
+      }
+      k = addDays(k, 7);
+    }
+    return out.reverse();
+  }
+  function cyclesHtml() {
+    const cs = cyclesList();
+    if (!cs.length) return '';
+    let h = '<h2 style="margin-top:22px">Ciclos</h2>';
+    cs.slice(0, 6).forEach((c, ci) => {
+      const prev = cs[ci + 1];
+      h += `<div class="card"><div class="row" style="justify-content:space-between"><b>${ci === 0 ? 'Ciclo actual' : 'Ciclo'} · desde ${weekLabel(c.weeks[0].k).split(' – ')[0]}</b><span class="small muted">${c.weeks.length} semana${c.weeks.length > 1 ? 's' : ''}</span></div>
+        <table class="tbl" style="margin-top:8px;font-size:13px"><tr class="muted tiny"><td>Semana</td><td class="r">Series</td><td class="r">km</td><td class="r">Gym</td><td class="r">RPE</td><td class="r">Eq. 800</td></tr>`;
+      c.weeks.forEach(wk => {
+        const st = wk.st;
+        h += `<tr><td><button class="pill ${wk.tag === 'D' ? '' : 'acc'}" data-act="wtag" data-k="${wk.k}" style="${wk.auto ? 'border-style:dashed;opacity:.75' : ''}">${TAGS[wk.tag]}${wk.auto ? ' ?' : ''}</button><div class="tiny muted">${weekLabel(wk.k)}</div></td>
+          <td class="r">${st.reps || '—'}</td><td class="r">${st.meters ? (st.meters / 1000).toFixed(1).replace('.', ',') : '—'}</td><td class="r">${st.gym || '—'}</td><td class="r">${st.rpe ? st.rpe.toFixed(1).replace('.', ',') : '—'}</td><td class="r"><b>${st.eq ? fmtT(Math.round(st.eq * 10) / 10).replace('.', ',') : '—'}</b></td></tr>`;
+        const ds = Object.keys(st.by).sort((a, b) => +a - +b).map(d => st.by[d].length + '×' + d);
+        if (ds.length) h += `<tr><td colspan="6" class="tiny muted" style="border-bottom:1px solid var(--line);padding-top:0">${esc(ds.join(' · '))}</td></tr>`;
+        if (S.tagWeek === wk.k) h += `<tr><td colspan="6">${tagPicker(wk.k)}</td></tr>`;
+      });
+      h += '</table>';
+      // progresión dentro del ciclo: misma distancia en varias semanas
+      const dists = {};
+      c.weeks.forEach(wk => Object.keys(wk.st.by).forEach(d => { (dists[d] = dists[d] || []).push({ n: wk.st.by[d].length, secs: wk.st.by[d].map(repSec).filter(Boolean) }); }));
+      const lines = Object.keys(dists).filter(d => dists[d].length > 1 && +d >= 60).map(d => {
+        const arr = dists[d];
+        const p = arr.map(a => a.secs.length ? per100(a.secs.reduce((x, y) => x + y, 0) / a.secs.length, +d).replace('/100m', '') : '—');
+        return `<div class="small"><b>${d} m:</b> ${arr.map(a => a.n).join(' → ')} series · ${p.join(' → ')} /100m</div>`;
+      });
+      if (lines.length) h += `<div style="margin-top:10px"><div class="tiny muted" style="margin-bottom:4px">Mismas series a lo largo del ciclo (volumen → ritmo medio)</div>${lines.join('')}</div>`;
+      if (prev) {
+        const avg = (cy, f) => { const v = cy.weeks.map(x => x.st[f]).filter(x => x); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+        const e1 = avg(c, 'eq'), e0 = avg(prev, 'eq'), m1 = avg(c, 'meters'), m0 = avg(prev, 'meters');
+        const bits = [];
+        if (e1 && e0) { const ch = (e0 - e1) / e0 * 100; bits.push(`ritmo eq. 800 ${Math.abs(ch).toFixed(1).replace('.', ',')}% ${ch >= 0 ? 'más rápido' : 'más lento'}`); }
+        if (m1 && m0) { const ch = (m1 - m0) / m0 * 100; bits.push(`volumen semanal ${ch >= 0 ? '+' : ''}${ch.toFixed(0)}%`); }
+        if (bits.length) h += `<div class="small" style="margin-top:10px;color:var(--info)">Frente al ciclo anterior: ${bits.join(' · ')}</div>`;
+      }
+      h += '</div>';
+    });
+    h += `<p class="tiny muted">"Eq. 800" convierte cada serie de 100 a 2000 m en el tiempo equivalente de un 800 (fórmula de Riegel), para poder comparar ciclos con series distintas. No es una predicción de carrera: sirve para ver la tendencia. Las semanas con "?" las he deducido yo; tócalas para marcarlas.</p>`;
+    return h;
+  }
+  function tagPicker(k) {
+    return `<div class="row" style="flex-wrap:wrap;gap:6px;margin:6px 0">${Object.keys(TAGS).map(t => `<button class="chip ${weekTags[k] === t ? 'on' : ''}" style="padding:6px 10px;font-size:13px" data-act="setwtag" data-k="${k}" data-t="${t}">${TAGS[t]}</button>`).join('')}<button class="chip" style="padding:6px 10px;font-size:13px" data-act="setwtag" data-k="${k}" data-t="">Sin marcar</button></div>`;
+  }
+
+  // ---------- estado de forma ----------
+  function clamp(x) { return Math.max(0, Math.min(100, x)); }
+  function formState(refISO) {
+    const ref = parseISO(refISO);
+    const daysAgo = w => Math.round((ref - parseISO(w.date)) / 864e5);
+    const inWin = (w, a, b) => { const d = daysAgo(w); return d >= a && d <= b; };
+    const run = workouts.filter(w => !isGymW(w));
+    const recent = run.filter(w => inWin(w, 0, 20)), base = run.filter(w => inWin(w, 21, 62));
+    const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const eqR = mean(recent.map(sessionEq).filter(v => v != null)), eqB = mean(base.map(sessionEq).filter(v => v != null));
+    const parts = [];
+    let ch = null;
+    if (eqR && eqB) {
+      ch = (eqB - eqR) / eqB * 100;
+      parts.push({ name: 'Ritmo', w: 50, score: clamp(50 + ch * 10), txt: `Tus series (pasadas a equivalente de 800) van un ${Math.abs(ch).toFixed(1).replace('.', ',')}% ${ch >= 0 ? 'más rápidas' : 'más lentas'} que en las 6 semanas anteriores.` });
+    } else parts.push({ name: 'Ritmo', w: 50, score: 50, txt: 'Aún no hay tiempos suficientes para comparar (hacen falta series de 100-2000 m en las últimas 3 semanas y en las 6 anteriores).', nodata: true });
+    const rR = mean(workouts.filter(w => inWin(w, 0, 20) && w.rpe).map(w => w.rpe)), rB = mean(workouts.filter(w => inWin(w, 21, 62) && w.rpe).map(w => w.rpe));
+    if (rR && rB) {
+      const d = rB - rR;
+      parts.push({ name: 'Esfuerzo', w: 20, score: clamp(50 + d * 12 + (ch || 0) * 4), txt: `RPE medio ${rR.toFixed(1).replace('.', ',')} frente a ${rB.toFixed(1).replace('.', ',')} antes${ch != null ? (d >= 0 && ch >= 0 ? ': más rápido con menos o igual esfuerzo 👌' : d < 0 && ch > 0 ? ': más rápido pero costando más' : '') : ''}.` });
+    } else parts.push({ name: 'Esfuerzo', w: 20, score: 50, txt: 'Apunta el RPE al guardar para que cuente.', nodata: true });
+    let tot = 0, done = 0;
+    workouts.filter(w => inWin(w, 0, 27)).forEach(w => {
+      w.parts.forEach(p => p.blocks.forEach(b => b.reps.forEach(r => { if (b.optional || r.optional) return; tot++; if (r.status === 'locked') done++; })));
+      (w.lifts || []).forEach(l => l.sets.forEach(x => { tot++; if (x.status === 'locked') done++; }));
+      (w.applied || []).forEach(g => g.variants.forEach(v => v.done.forEach(d => { tot++; if (d) done++; })));
+    });
+    const sess = workouts.filter(w => inWin(w, 0, 27)).length;
+    const cov = Math.min(1, sess / 8), ratio = tot ? done / tot : (sess ? 1 : 0);
+    parts.push({ name: 'Constancia', w: 20, score: clamp(100 * (0.6 * ratio + 0.4 * cov)), txt: `${sess} entrenos en 4 semanas · ${tot ? Math.round(ratio * 100) + '% de las series hechas' : 'sin series registradas'}.` });
+    const chs = [];
+    rms.list.forEach(e => {
+      const hs = (e.history || []).filter(x => x.rm); if (hs.length < 2) return;
+      const last = hs[hs.length - 1]; if (Math.round((ref - parseISO(last.date)) / 864e5) > 62) return;
+      const prevH = hs[hs.length - 2]; chs.push((last.rm - prevH.rm) / prevH.rm * 100);
+    });
+    if (chs.length) { const a = mean(chs); parts.push({ name: 'Fuerza', w: 10, score: clamp(50 + a * 5), txt: `Tus RMs han ${a >= 0 ? 'subido' : 'bajado'} de media un ${Math.abs(a).toFixed(1).replace('.', ',')}%.` }); }
+    else parts.push({ name: 'Fuerza', w: 10, score: 50, txt: 'Sin cambios de RM recientes. Cuando hagas retest, guárdalo en la Calculadora.', nodata: true });
+    const total = Math.round(parts.reduce((a, p) => a + p.score * p.w, 0) / 100);
+    return { total, parts, ch, enough: run.length >= 3 };
+  }
+  function formHtml() {
+    const f = formState(todayISO());
+    if (!f.enough) return `<div class="card"><b>Estado de forma</b><p class="small muted" style="margin-bottom:0">Cuando tengas al menos 3 entrenos de carrera con tiempos te enseño aquí una nota de forma (0-100) y si vas mejorando.</p></div>`;
+    const old = formState(addDays(todayISO(), -21));
+    const diff = f.total - old.total;
+    const arrow = diff > 3 ? ['↑', 'var(--ok)', 'mejorando'] : diff < -3 ? ['↓', 'var(--bad)', 'bajando'] : ['→', 'var(--acc2)', 'estable'];
+    let h = `<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><b>Estado de forma</b><div class="small muted">Últimas 3 semanas frente a las 6 anteriores</div></div>
+      <div style="text-align:right"><span style="font-size:40px;font-weight:800">${f.total}</span><span style="font-size:28px;color:${arrow[1]};font-weight:800"> ${arrow[0]}</span><div class="tiny" style="color:${arrow[1]}">${arrow[2]}${old.enough ? ' (' + (diff >= 0 ? '+' : '') + diff + ' en 3 sem.)' : ''}</div></div></div>`;
+    f.parts.forEach(p => {
+      h += `<div style="margin-top:10px"><div class="row small" style="justify-content:space-between"><b>${p.name} <span class="tiny muted">${p.w}%</span></b><span>${p.nodata ? '—' : Math.round(p.score)}</span></div>
+        <div class="bar" style="margin:4px 0"><i style="width:${p.score}%;${p.nodata ? 'opacity:.3' : ''}"></i></div><div class="tiny muted">${esc(p.txt)}</div></div>`;
+    });
+    h += `<details style="margin-top:10px"><summary>¿Cómo se calcula?</summary><div class="tiny muted">50 = igual que antes. Ritmo (50%): cada 1% más rápido suma 10 puntos; cuentan el doble las series de 200 a 1000 m (lo más cercano a tu 400/800). Esfuerzo (20%): bajar el RPE con el mismo ritmo suma. Constancia (20%): series hechas y entrenos en las últimas 4 semanas (8 = completo). Fuerza (10%): cambios de tus RMs. Las descargas no restan por hacer menos volumen.</div></details></div>`;
+    return h;
+  }
+
+  // ---------- entreno libre (sin mensaje) ----------
+  function quickWorkout(text, rpe) {
+    const t = TrainParser.norm(text);
+    const toks = TrainParser.findTokens(t);
+    const reps = [];
+    toks.forEach((k, idx) => {
+      const seg = t.slice(k.e, idx + 1 < toks.length ? toks[idx + 1].i : t.length);
+      const tm = seg.match(/^\s*(?:a|en|de|=|:)?\s*(\d+(?:[.,:']\d+){0,2})\s*(?:s\b|seg|"|segundos|min)?/i);
+      const n = Math.max(k.countMax, 1);
+      for (let c = 0; c < n; c++) k.dists.forEach(d => reps.push({ dist: d, label: String(d), unit: 'time', rest: '', value: tm ? tm[1] : '', status: 'locked', optional: false }));
+    });
+    const gym = GymParser.isGym(t) || /\bgym\b|gimnasio|pesas|fuerza|sentadilla|press/i.test(t);
+    return { type: 'free', kind: gym ? 'gym' : 'run', id: null, date: draft.date, group: gym ? 'Gimnasio (sin mensaje)' : 'Entreno sin mensaje', raw: text, notes: [text], parts: reps.length ? [{ title: 'Series', text: '', blocks: [{ optional: false, restAfter: '', reps }] }] : [], comment: '', rpe: rpe || null };
+  }
+
   // ---------- acciones ----------
   function getRep(el) { const p = +el.dataset.p, b = +el.dataset.b, r = +el.dataset.r; return { p, b, r, rep: draft.workout.parts[p].blocks[b].reps[r] }; }
   function focusNext(p, b, r) {
@@ -860,6 +1060,16 @@
       case 'expand': el.classList.toggle('clamp'); break;
       case 'toggle-edit': S.edit = !S.edit; render(); if (S.edit) toast('Modo edición activado'); break;
       case 'settings': S.view = 'settings'; render(); window.scrollTo(0, 0); break;
+      case 'wtag': S.tagWeek = S.tagWeek === el.dataset.k ? null : el.dataset.k; render(); break;
+      case 'setwtag': { const k = el.dataset.k; if (el.dataset.t) weekTags[k] = el.dataset.t; else delete weekTags[k]; save(LS_WK, weekTags); S.tagWeek = null; render(); break; }
+      case 'quickrpe': draft.quickRpe = draft.quickRpe === +el.dataset.v ? null : +el.dataset.v; persistDraft(); render(); break;
+      case 'quicksave': {
+        const txt = (document.getElementById('quick').value || '').trim();
+        if (!txt) { toast('Escribe qué hiciste'); break; }
+        const w = quickWorkout(txt, draft.quickRpe); w.id = uid(); w.savedAt = Date.now();
+        workouts.push(w); persistW(); draft.quick = ''; draft.quickRpe = null; persistDraft();
+        S.view = 'detail'; S.detailId = w.id; render(); window.scrollTo(0, 0); toast('Apuntado ✓ (puedes editarlo)'); break;
+      }
       case 'editdist': {
         const { p, rep } = getRep(el); const old = rep.label;
         const v = prompt('Distancia de esta serie (metros):', String(rep.dist || parseFloat(old) || ''));
@@ -938,6 +1148,7 @@
   $app.addEventListener('input', e => {
     const el = e.target;
     if (el.id === 'raw') { draft.raw = el.value; persistDraft(); return; }
+    if (el.id === 'quick') { draft.quick = el.value; persistDraft(); return; }
     if (el.id === 'comment') { draft.workout.comment = el.value; persistDraft(); return; }
     const a = el.dataset.act;
     if (gymInput(a, el) || calcInput(a, el)) return;
@@ -972,7 +1183,7 @@
     let missing = 0;
     (w.lifts || []).forEach(l => l.sets.forEach(x => {
       if (x.status === 'pending' && String(x.value).trim()) x.status = 'locked';
-      if (x.status === 'locked') x.target = liftTarget(w, l);
+      if (x.status === 'locked') { x.target = liftTarget(w, l); if ((x.value === '' || x.value == null) && x.target != null) x.value = fmtKg(x.target); }
       if (x.status === 'pending') missing++;
     }));
     w.parts.forEach(p => p.blocks.forEach(b => b.reps.forEach(r => {
