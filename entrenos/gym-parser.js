@@ -41,7 +41,7 @@
     const lines = t.split('\n');
     const firstIdx = lines.findIndex(l => l.trim());
     const title = firstIdx >= 0 ? clean(lines[firstIdx]).replace(/[:.]$/, '') : 'Gimnasio';
-    const out = { title, scheme: null, pct: null, lifts: [], applied: [], drags: null, notes: [] };
+    const out = { title, scheme: null, pct: null, lifts: [], applied: [], drags: null, notes: [], dragLines: [] };
 
     const pctM = t.match(/al\s*(\d{2,3})\s*%/i);
     out.pct = pctM ? +pctM[1] : null;
@@ -59,7 +59,7 @@
         if (!out.drags) out.drags = { blocks: 0, reps: 0, dist: 30, optional: false, blockNotes: [], loads: null };
         if (/si (te|os) da tiempo|si da tiempo|opcional/i.test(c)) out.drags.optional = true;
         dragLine(c);
-        out.notes.push(c);
+        out.dragLines.push(c);
         return;
       }
       if (/^\s*repes?\b/i.test(c)) return;
@@ -105,7 +105,7 @@
         return;
       }
 
-      if (mode === 'drags') { if (!dragLine(c)) out.notes.push(c); }
+      if (mode === 'drags') { dragLine(c); out.dragLines.push(c); }
     });
 
     function dragLine(c) {
