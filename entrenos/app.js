@@ -380,7 +380,7 @@
     rep.status = 'locked'; persistDraft(); render(); focusNext(p, b, r);
   }
 
-  $app.addEventListener('click', e => {
+  function onClick(e) {
     const el = e.target.closest('[data-act]'); if (!el) return;
     const a = el.dataset.act;
     const W = draft.workout;
@@ -451,7 +451,9 @@
       case 'export': exportData(); break;
       case 'import': document.getElementById('importfile').click(); break;
     }
-  });
+  }
+  $app.addEventListener('click', onClick);
+  $hdr.addEventListener('click', onClick);
 
   $app.addEventListener('input', e => {
     const el = e.target;
