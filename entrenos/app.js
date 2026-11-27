@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '10';
+  const VERSION = '11';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -22,7 +22,8 @@
   let settings = load(LS_SET, { apiKey: '' });
   let calc = load(LS_CALC, { mode: 't2p', dist: '300', time: '45', pace: '15', unit: '100', ex: '', w: '', r: '' });
   function persistRM() { save(LS_RM, rms); }
-  const LS_WK = 'entrenos.weeks.v1';
+  const LS_WK = 'entrenos.weeks.v1', LS_PB = 'entrenos.pbs.v1';
+  let pbs = load(LS_PB, []);
   let weekTags = load(LS_WK, null);
   if (!weekTags) { weekTags = {}; weekTags[weekStart(todayISO())] = 'C1'; save(LS_WK, weekTags); }
 
@@ -206,13 +207,15 @@
     const load = r.load !== undefined ? `<input class="t kg" type="text" inputmode="decimal" autocomplete="off" data-act="load" data-p="${p}" data-b="${b}" data-r="${i}" value="${esc(r.load)}" placeholder="${esc(r.loadHint ? r.loadHint + ' kg' : 'kg')}" ${dis}>` : '';
     return `<div class="${cls}">${lab}${load}
       <input class="t" type="text" inputmode="decimal" enterkeyhint="next" autocomplete="off" data-act="val" data-p="${p}" data-b="${b}" data-r="${i}" id="in-${p}-${b}-${i}" value="${esc(r.value)}" placeholder="${ph}" ${dis}>
-      ${btns}</div><div class="pace" id="pc-${p}-${b}-${i}">${esc(hint(r))}</div>`;
+      ${btns}</div><div class="${hintCls(r)}" id="pc-${p}-${b}-${i}">${esc(hint(r))}</div>`;
   }
   function hint(r) {
     if (!r.value) return '';
     if (r.unit === 'm') { const v = repNum(r); return v == null ? '' : v.toFixed(2) + ' m'; }
     const s = repSec(r); if (s == null) return '¿formato?';
-    return '= ' + fmtT(s) + (r.dist ? ' · ' + paceStr(s, r.dist) : '');
+    let t = '= ' + fmtT(s) + (r.dist ? ' · ' + paceStr(s, r.dist) : '');
+    if (r.target) { const d = s - r.target; t += ' · obj. ' + fmtT(Math.round(r.target * 10) / 10) + ' (' + (d > 0 ? '+' : '') + d.toFixed(1).replace('.', ',') + ')'; }
+    return t;
   }
 
   function progress(w) {
@@ -230,7 +233,7 @@
     const w = draft.workout;
     if (w.type === 'gym') return renderGymForm();
     $title.innerHTML = esc(prettyTitle(w.group)) + '<small>' + fmtDate(w.date) + (draft.editingId ? ' · editando' : '') + '</small>';
-    $hdr.innerHTML = `<button class="hdrbtn" data-act="toggle-edit">${S.edit ? 'Hecho' : 'Editar'}</button>`;
+    $hdr.innerHTML = `<button class="hdrbtn" data-act="theme" data-v="${document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light'}" aria-label="Cambiar tema">${document.documentElement.getAttribute('data-theme') === 'light' ? '🌙' : '☀️'}</button><button class="hdrbtn" data-act="toggle-edit">${S.edit ? 'Hecho' : 'Editar'}</button>`;
     const pr = progress(w);
     let h = `<div class="sumbar"><span>${pr.done}/${pr.tot}</span><div class="bar"><i style="width:${pr.tot ? pr.done / pr.tot * 100 : 0}%"></i></div>
       <input type="date" id="fdate" value="${esc(w.date)}" style="background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 6px;font-size:13px"></div>`;
@@ -247,6 +250,7 @@
   }
   function formFooter(w) {
     return `<div class="card"><div class="small muted" style="margin-bottom:6px">Esfuerzo percibido (RPE) <b style="color:var(--acc)">· obligatorio</b> <span class="tiny">1 muy suave · 5 moderado · 8 duro · 10 máximo</span></div><div class="rpe">${[...Array(10)].map((_, i) => `<button data-act="rpe" data-v="${i + 1}" class="${w.rpe === i + 1 ? 'on' : ''}">${i + 1}</button>`).join('')}</div>
+      ${footerExtras(w)}
       <div class="small muted" style="margin:12px 0 6px">Sensaciones / notas</div><textarea class="field" id="comment" style="min-height:70px" placeholder="Clavos, viento, molestias, cargas, ritmos que te dio el entrenador…">${esc(w.comment)}</textarea></div>
       <button class="btn pri block" data-act="savew">Guardar entrenamiento</button>
       <button class="btn ghost block" data-act="discard" style="margin-top:8px;color:var(--mut)">Descartar</button>`;
@@ -254,7 +258,7 @@
   function renderParts(w) {
     let h = '';
     w.parts.forEach((part, p) => {
-      h += `<div class="part">` + (S.edit ? `<input class="field" style="font-weight:700;color:var(--acc2);margin-bottom:6px" data-act="edittitle" data-p="${p}" value="${esc(part.title)}">` : `<h3>${esc(part.title)}${part.optional ? ' <span class="pill">opcional</span>' : ''}</h3>`);
+      h += `<div class="part">` + (S.edit ? `<input class="field" style="font-weight:700;color:var(--acc2);margin-bottom:6px" data-act="edittitle" data-p="${p}" value="${esc(part.title)}">` : `<h3>${esc(part.title)}${part.optional ? ' <span class="pill">opcional</span>' : ''}</h3>`) + (!S.edit && mainDist(part) ? `<button class="chip ${part.target ? 'on' : ''}" style="padding:5px 10px;font-size:12px;margin:2px 0 6px" data-act="ptarget" data-p="${p}">🎯 ${part.target ? 'Objetivo: ' + esc(targetTxt(part)) : 'Poner ritmo objetivo'}</button>` : '');
       if (part.text) h += `<div class="parttxt clamp" data-act="expand">${esc(part.text)}</div>`;
       const multi = part.blocks.length > 1;
       part.blocks.forEach((bl, b) => {
@@ -337,6 +341,9 @@
     const reps = doneReps(w);
     if (w.type === 'gym') h += `<div class="stat"><div><b>${(w.lifts || []).reduce((a, l) => a + l.sets.filter(x => x.status === 'locked').length, 0)}</b><span>series de fuerza</span></div><div><b>${w.pct ? w.pct + '%' : '—'}</b><span>del RM</span></div><div><b>${w.rpe || '—'}</b><span>RPE</span></div></div>`;
     else h += `<div class="stat"><div><b>${reps.length}</b><span>series hechas</span></div><div><b>${(meters(w) / 1000).toFixed(2).replace('.', ',')} km</b><span>volumen</span></div><div><b>${w.rpe || '—'}</b><span>RPE</span></div></div>`;
+    { const gd = guessDur(w); if (w.rpe) h += `<div class="small muted" style="margin:-2px 2px 10px">Duración ${gd.est ? '≈' : ''}${gd.v} min · carga ${sessionLoad(w)} (min × RPE)</div>`; }
+    if ((w.pains || []).length) h += `<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${w.pains.map(z => `<span class="pill" style="color:var(--bad);border-color:var(--bad)">🩹 ${esc(z)}</span>`).join('')}</div>`;
+    sessionDrops(w).forEach(d => { h += `<div class="card small" style="border-color:var(--acc2)">⚠️ ${esc(d.part)}: tus ${d.dist} m cayeron un ${d.ch.toFixed(1).replace('.', ',')}% (de ${fmtT(d.first)} a ${fmtT(d.last)}). Más de un 3% suele indicar fatiga o salida demasiado rápida.</div>`; });
     if (w.comment) h += `<ul class="notes"><li>${esc(w.comment)}</li></ul>`;
     if (w.type === 'gym') h += gymDetailHtml(w);
     if (w.type === 'free') h += `<div class="card"><div class="small muted">Lo que me contaste</div><div>${esc(w.raw)}</div></div>`;
@@ -382,7 +389,7 @@
   // ---------- progresión ----------
   function renderProgress() {
     $title.innerHTML = 'Progreso<small>Forma, ciclos y marcas</small>';
-    const top = formHtml() + cyclesHtml() + '<h2 style="margin-top:22px">Por distancia y ejercicio</h2>';
+    const top = warningsHtml() + formHtml() + cyclesHtml() + painsHtml() + pbsHtml() + '<h2 style="margin-top:22px">Por distancia y ejercicio</h2>';
     const series = {}; // label -> [{date, vals}]
     workouts.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(w => {
       const per = {};
@@ -476,7 +483,7 @@
   function renderGymForm() {
     const w = draft.workout;
     $title.innerHTML = '🏋 ' + esc(w.group) + '<small>' + fmtDate(w.date) + (draft.editingId ? ' · editando' : '') + '</small>';
-    $hdr.innerHTML = `<button class="hdrbtn" data-act="toggle-edit">${S.edit ? 'Hecho' : 'Editar'}</button>`;
+    $hdr.innerHTML = `<button class="hdrbtn" data-act="theme" data-v="${document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light'}" aria-label="Cambiar tema">${document.documentElement.getAttribute('data-theme') === 'light' ? '🌙' : '☀️'}</button><button class="hdrbtn" data-act="toggle-edit">${S.edit ? 'Hecho' : 'Editar'}</button>`;
     const pr = progress(w);
     let h = `<div class="sumbar"><span>${pr.done}/${pr.tot}</span><div class="bar"><i style="width:${pr.tot ? pr.done / pr.tot * 100 : 0}%"></i></div>
       <input type="date" id="fdate" value="${esc(w.date)}" style="background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:5px 6px;font-size:13px"></div>`;
@@ -761,7 +768,9 @@
     $title.innerHTML = 'Ajustes';
     $hdr.innerHTML = '<button class="hdrbtn" data-act="back-input">‹ Volver</button>';
     const k = settings.apiKey;
-    $app.innerHTML = `<div class="card"><b>Leer fotos con IA (Claude)</b>
+    const th = settings.theme || 'dark';
+    $app.innerHTML = `<div class="card"><b>Apariencia</b><div class="chips" style="margin:8px 0 0">${[['dark', '🌙 Oscuro'], ['light', '☀️ Claro (pista)'], ['auto', 'Automático']].map(([v, l]) => `<button class="chip ${th === v ? 'on' : ''}" data-act="theme" data-v="${v}">${l}</button>`).join('')}</div></div>
+      <div class="card"><b>Leer fotos con IA (Claude)</b>
       <p class="small muted">Para pasar a texto las fotos de la pizarra o la libreta, la app usa Claude, la IA de Anthropic. Necesitas una clave de API propia: créala en <b>console.anthropic.com</b> → API Keys y pégala aquí. Cada foto cuesta unos 2-4 céntimos y se cobra en tu cuenta de Anthropic. Te recomiendo ponerle un límite de gasto mensual en la consola.</p>
       <p class="small muted">La clave se guarda solo en este móvil y únicamente se envía a Anthropic al leer una foto.</p>
       <input class="field" id="set-key" type="password" autocomplete="off" placeholder="sk-ant-..." value="${esc(k)}">
@@ -883,7 +892,8 @@
       n: ws.length, gym: ws.filter(isGymW).length, meters: run.reduce((a, w) => a + meters(w), 0),
       reps: run.reduce((a, w) => a + doneReps(w).length, 0),
       rpe: rpes.length ? rpes.reduce((a, b) => a + b, 0) / rpes.length : null,
-      eq: eqs.length ? eqs.reduce((a, b) => a + b, 0) / eqs.length : null, by
+      eq: eqs.length ? eqs.reduce((a, b) => a + b, 0) / eqs.length : null, by,
+      load: ws.reduce((a, w) => a + sessionLoad(w), 0)
     };
   }
   function cyclesList() {
@@ -907,12 +917,12 @@
     cs.slice(0, 6).forEach((c, ci) => {
       const prev = cs[ci + 1];
       h += `<div class="card"><div class="row" style="justify-content:space-between"><b>${ci === 0 ? 'Ciclo actual' : 'Ciclo'} · desde ${weekLabel(c.weeks[0].k).split(' – ')[0]}</b><span class="small muted">${c.weeks.length} semana${c.weeks.length > 1 ? 's' : ''}</span></div>
-        <table class="tbl" style="margin-top:8px;font-size:13px"><tr class="muted tiny"><td>Semana</td><td class="r">Series</td><td class="r">km</td><td class="r">Gym</td><td class="r">RPE</td><td class="r">Eq. 800</td></tr>`;
+        <table class="tbl" style="margin-top:8px;font-size:13px"><tr class="muted tiny"><td>Semana</td><td class="r">Series</td><td class="r">km</td><td class="r">Carga</td><td class="r">RPE</td><td class="r">Eq. 800</td></tr>`;
       c.weeks.forEach(wk => {
         const st = wk.st;
         h += `<tr><td><button class="pill ${wk.tag === 'D' ? '' : 'acc'}" data-act="wtag" data-k="${wk.k}" style="${wk.auto ? 'border-style:dashed;opacity:.75' : ''}">${TAGS[wk.tag]}${wk.auto ? ' ?' : ''}</button><div class="tiny muted">${weekLabel(wk.k)}</div></td>
-          <td class="r">${st.reps || '—'}</td><td class="r">${st.meters ? (st.meters / 1000).toFixed(1).replace('.', ',') : '—'}</td><td class="r">${st.gym || '—'}</td><td class="r">${st.rpe ? st.rpe.toFixed(1).replace('.', ',') : '—'}</td><td class="r"><b>${st.eq ? fmtT(Math.round(st.eq * 10) / 10).replace('.', ',') : '—'}</b></td></tr>`;
-        const ds = Object.keys(st.by).sort((a, b) => +a - +b).map(d => st.by[d].length + '×' + d);
+          <td class="r">${st.reps || '—'}</td><td class="r">${st.meters ? (st.meters / 1000).toFixed(1).replace('.', ',') : '—'}</td><td class="r">${st.load || '—'}</td><td class="r">${st.rpe ? st.rpe.toFixed(1).replace('.', ',') : '—'}</td><td class="r"><b>${st.eq ? fmtT(Math.round(st.eq * 10) / 10).replace('.', ',') : '—'}</b></td></tr>`;
+        const ds = Object.keys(st.by).sort((a, b) => +a - +b).map(d => st.by[d].length + '×' + d); if (st.gym) ds.push(st.gym + ' gym');
         if (ds.length) h += `<tr><td colspan="6" class="tiny muted" style="border-bottom:1px solid var(--line);padding-top:0">${esc(ds.join(' · '))}</td></tr>`;
         if (S.tagWeek === wk.k) h += `<tr><td colspan="6">${tagPicker(wk.k)}</td></tr>`;
       });
@@ -936,7 +946,7 @@
       }
       h += '</div>';
     });
-    h += `<p class="tiny muted">"Eq. 800" convierte cada serie de 100 a 2000 m en el tiempo equivalente de un 800 (fórmula de Riegel), para poder comparar ciclos con series distintas. No es una predicción de carrera: sirve para ver la tendencia. Las semanas con "?" las he deducido yo; tócalas para marcarlas.</p>`;
+    h += `<p class="tiny muted">"Carga" = minutos × RPE de toda la semana (gimnasio incluido): la forma estándar de medir lo exigente que ha sido. "Eq. 800" convierte cada serie de 100 a 2000 m en el tiempo equivalente de un 800 (fórmula de Riegel), para poder comparar ciclos con series distintas. No es una predicción de carrera: sirve para ver la tendencia. Las semanas con "?" las he deducido yo; tócalas para marcarlas.</p>`;
     return h;
   }
   function tagPicker(k) {
@@ -1041,6 +1051,147 @@
     return { type: 'free', kind: gym ? 'gym' : 'run', id: null, date: draft.date, group: gym ? 'Gimnasio (sin mensaje)' : 'Entreno sin mensaje', raw: text, notes: [text], parts: reps.length ? [{ title: 'Series', text: '', blocks: [{ optional: false, restAfter: '', reps }] }] : [], comment: '', rpe: rpe || null };
   }
 
+  // ---------- ritmo objetivo ----------
+  function mainDist(part) {
+    const c = {}; part.blocks.forEach(b => b.reps.forEach(r => { if (r.dist && r.unit !== 'm') c[r.dist] = (c[r.dist] || 0) + 1; }));
+    const ks = Object.keys(c); return ks.length ? +ks.sort((a, b) => c[b] - c[a])[0] : null;
+  }
+  function setPartTarget(part) {
+    const d = mainDist(part);
+    if (!d) { toast('Esta parte no tiene distancias'); return false; }
+    const cur = part.target ? fmtT(part.target * d / 100).replace('.', ',') : '';
+    const v = prompt(`Ritmo objetivo para "${part.title}".\nEscribe el tiempo de cada ${d} m (ej. ${d >= 400 ? '1,05 = 1:05' : '54'}), o el ritmo cada 100 m terminado en /100 (ej. 18/100), o por km terminado en /km (ej. 3,20/km). Vacío para quitarlo:`, cur);
+    if (v == null) return false;
+    const t = v.trim().toLowerCase();
+    let p100 = null;
+    if (!t) p100 = null;
+    else if (/\/\s*100/.test(t)) { const s = parseTime(t.replace(/\/.*$/, ''), 100); p100 = s; }
+    else if (/\/\s*km/.test(t)) { const s = parseTime(t.replace(/\/.*$/, ''), 1000); p100 = s ? s / 10 : null; }
+    else { const s = parseTime(t, d); p100 = s ? s / d * 100 : null; }
+    if (t && !p100) { toast('No lo entiendo. Ej: 54 · 18/100 · 3,20/km'); return false; }
+    part.target = p100;
+    part.blocks.forEach(b => b.reps.forEach(r => { if (r.dist && r.unit !== 'm') r.target = p100 ? p100 * r.dist / 100 : null; }));
+    return true;
+  }
+  function targetTxt(part) { const d = mainDist(part); return part.target && d ? fmtT(Math.round(part.target * d) / 100).replace('.', ',') + ' en ' + d + ' (' + (Math.round(part.target * 10) / 10).toString().replace('.', ',') + '/100)' : ''; }
+  function hintCls(r) {
+    if (!r.target || !r.value || r.unit === 'm') return 'pace';
+    const s = repSec(r); if (s == null) return 'pace';
+    return 'pace ' + (s <= r.target * 1.005 ? 'ok' : 'bad');
+  }
+
+  // ---------- fatiga, molestias, carga ----------
+  const PAIN_ZONES = ['Gemelo', 'Sóleo/Aquiles', 'Isquio', 'Cuádriceps', 'Aductor', 'Glúteo/Cadera', 'Rodilla', 'Tobillo', 'Pie', 'Espalda'];
+  function sessionDrops(w) {
+    const out = [];
+    w.parts.forEach(p => {
+      const by = {};
+      p.blocks.forEach(b => b.reps.forEach(r => { if (r.status === 'locked' && r.unit !== 'm' && r.load === undefined) { const s = repSec(r); if (s) (by[r.dist] = by[r.dist] || []).push(s); } }));
+      Object.keys(by).forEach(d => {
+        const a = by[d]; if (a.length < 3) return;
+        const ch = (a[a.length - 1] - a[0]) / a[0] * 100;
+        if (ch > 3) out.push({ part: p.title, dist: d, ch, first: a[0], last: a[a.length - 1] });
+      });
+    });
+    return out;
+  }
+  function guessDur(w) {
+    if (w.dur) return { v: +w.dur, est: false };
+    const m = String(w.raw || '').match(/(\d+)\s*(?:min|minutos)\b/i);
+    if (w.type === 'free' && m) return { v: +m[1] + (doneReps(w).length ? 20 : 0), est: true };
+    return { v: isGymW(w) ? 60 : 75, est: true };
+  }
+  function sessionLoad(w) { return w.rpe ? guessDur(w).v * w.rpe : 0; }
+  function loadIn(days0, days1, refISO) {
+    const ref = parseISO(refISO || todayISO());
+    return workouts.filter(w => { const d = Math.round((ref - parseISO(w.date)) / 864e5); return d >= days0 && d <= days1; }).reduce((a, w) => a + sessionLoad(w), 0);
+  }
+  function warningsHtml() {
+    const ws = [];
+    // ratio carga aguda / crónica
+    const acute = loadIn(0, 6), chronic = loadIn(0, 27) / 4;
+    if (chronic > 0 && workouts.length >= 6) {
+      const r = acute / chronic;
+      if (r > 1.5) ws.push(`Carga de los últimos 7 días muy por encima de tu media (×${r.toFixed(1).replace('.', ',')}). Más de 1,5 aumenta el riesgo de lesión: vigila sensaciones.`);
+    }
+    // RPE subiendo 3 semanas
+    const wk = [0, 1, 2].map(i => { const k = addDays(weekStart(todayISO()), -7 * i); const st = weekStats(k); return st.rpe; });
+    if (wk.every(x => x) && wk[0] > wk[1] && wk[1] > wk[2] && wk[0] - wk[2] >= 1) ws.push(`Tu RPE medio lleva 3 semanas subiendo (${wk.slice().reverse().map(x => x.toFixed(1).replace('.', ',')).join(' → ')}). Si no es por más carga del ciclo, puede ser fatiga acumulada.`);
+    // caída de ritmo en sesiones recientes
+    const rec = workouts.filter(w => Math.round((parseISO(todayISO()) - parseISO(w.date)) / 864e5) <= 14);
+    const drops = rec.map(sessionDrops).filter(d => d.length).length;
+    if (drops >= 2) ws.push(`En ${drops} sesiones de las últimas 2 semanas tus tiempos cayeron más de un 3% de la primera a la última serie.`);
+    // forma: más lento costando más
+    const f = formState(todayISO());
+    if (f.enough && f.parts[0].score < 40 && f.parts[1].score < 40 && !f.parts[0].nodata && !f.parts[1].nodata) ws.push('Vas más lento y te está costando más esfuerzo que antes. Buena idea comentarlo con el entrenador.');
+    // molestias repetidas
+    const pc = painCounts(28);
+    Object.keys(pc).filter(z => pc[z] >= 3).forEach(z => ws.push(`Molestia en ${z.toLowerCase()} apuntada ${pc[z]} veces en 4 semanas. No lo dejes pasar.`));
+    if (!ws.length) return '';
+    return `<div class="card" style="border-color:var(--bad)"><b>⚠️ Señales a vigilar</b>${ws.map(x => `<div class="small" style="margin-top:8px">${esc(x)}</div>`).join('')}</div>`;
+  }
+  function painCounts(days) {
+    const ref = parseISO(todayISO()); const c = {};
+    workouts.forEach(w => { if (Math.round((ref - parseISO(w.date)) / 864e5) > days) return; (w.pains || []).forEach(z => { c[z] = (c[z] || 0) + 1; }); });
+    return c;
+  }
+  function painsHtml() {
+    const c = painCounts(42); const ks = Object.keys(c).sort((a, b) => c[b] - c[a]);
+    if (!ks.length) return '';
+    return `<div class="card"><b>Molestias (últimas 6 semanas)</b><div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px">${ks.map(z => `<span class="pill ${c[z] >= 3 ? 'acc' : ''}">${esc(z)} · ${c[z]}</span>`).join('')}</div></div>`;
+  }
+  function footerExtras(w) {
+    const pains = w.pains || [];
+    const zones = PAIN_ZONES.concat(pains.filter(z => !PAIN_ZONES.includes(z)));
+    return `<div class="small muted" style="margin:12px 0 6px">Duración total (min) <span class="tiny">· para calcular tu carga (min × RPE)</span></div>
+      <div class="row" style="flex-wrap:wrap;gap:6px"><input class="field" id="dur" inputmode="numeric" style="width:80px" value="${esc(w.dur || '')}" placeholder="min">${[45, 60, 75, 90, 120].map(m => `<button class="chip ${+w.dur === m ? 'on' : ''}" style="padding:6px 10px;font-size:13px" data-act="dur" data-v="${m}">${m}</button>`).join('')}</div>
+      <div class="small muted" style="margin:12px 0 6px">¿Alguna molestia?</div>
+      <div class="row" style="flex-wrap:wrap;gap:6px">${zones.map(z => `<button class="chip ${pains.includes(z) ? 'on' : ''}" style="padding:6px 10px;font-size:13px;${pains.includes(z) ? 'background:var(--bad);border-color:var(--bad)' : ''}" data-act="pain" data-z="${esc(z)}">${esc(z)}</button>`).join('')}<button class="chip" style="padding:6px 10px;font-size:13px" data-act="pain" data-z="">+ Otra</button></div>`;
+  }
+
+  // ---------- marcas personales ----------
+  function pbsHtml() {
+    const list = pbs.slice().sort((a, b) => a.dist - b.dist);
+    let h = `<h2 style="margin-top:22px">Mis marcas</h2><div class="card">`;
+    if (!list.length) h += `<p class="small muted" style="margin-top:0">Apunta tus mejores marcas de competición (400, 800…). Con ellas te estimo cómo estarías ahora según tus series.</p>`;
+    else {
+      h += '<table class="tbl">' + list.map(p => {
+        const est = pbEstimate(p);
+        return `<tr><td><b>${p.dist} m</b><div class="tiny muted">${p.date ? fmtDate(p.date, true) : ''}</div></td><td class="r"><b style="font-size:17px">${fmtT(p.time).replace('.', ',')}</b>${est ? `<div class="tiny" style="color:var(--info)">ahora ≈ ${fmtT(Math.round(est * 10) / 10).replace('.', ',')}</div>` : ''}</td><td class="r" style="white-space:nowrap"><button class="ib" style="display:inline-flex;width:34px;height:34px" data-act="pbedit" data-id="${p.id}">✏️</button> <button class="ib del" style="display:inline-flex;width:34px;height:34px" data-act="pbdel" data-id="${p.id}">${ICON.trash}</button></td></tr>`;
+      }).join('') + '</table>';
+      h += `<p class="tiny muted">"Ahora ≈" compara tu ritmo de series de las últimas 3 semanas con el que tenías en las 6 semanas antes de hacer esa marca. Es orientativo: depende del tipo de series de cada momento.</p>`;
+    }
+    h += `<button class="addrep" data-act="pbadd">+ Añadir marca</button></div>`;
+    return h;
+  }
+  function pbEstimate(p) {
+    if (!p.date || p.dist < 200 || p.dist > 1500) return null;
+    const ref = parseISO(p.date), now = parseISO(todayISO());
+    const run = workouts.filter(w => !isGymW(w));
+    const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const before = mean(run.filter(w => { const d = Math.round((ref - parseISO(w.date)) / 864e5); return d >= 0 && d <= 42; }).map(sessionEq).filter(Boolean));
+    const recent = mean(run.filter(w => { const d = Math.round((now - parseISO(w.date)) / 864e5); return d >= 0 && d <= 20; }).map(sessionEq).filter(Boolean));
+    return before && recent ? p.time * recent / before : null;
+  }
+  function askPB(p) {
+    const d = prompt('Distancia (m):', p ? p.dist : '800'); if (d == null) return false;
+    const dist = parseInt(d, 10); if (!dist) { toast('Distancia no válida'); return false; }
+    const t = prompt('Tiempo (ej. ' + (dist >= 400 ? '2,05,30 = 2:05.30 o 2:05.3' : '52,4') + '):', p ? fmtT(p.time).replace('.', ',') : ''); if (t == null) return false;
+    const sec = parseTime(t.replace(/(\d+),(\d{2}),(\d+)/, '$1:$2.$3'), dist); if (!sec) { toast('Tiempo no válido'); return false; }
+    const dt = prompt('Fecha (AAAA-MM-DD):', p ? p.date : todayISO()); if (dt == null) return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dt.trim())) { toast('Fecha no válida'); return false; }
+    if (p) Object.assign(p, { dist, time: sec, date: dt.trim() }); else pbs.push({ id: uid(), dist, time: sec, date: dt.trim() });
+    save(LS_PB, pbs); return true;
+  }
+
+  // ---------- tema claro / oscuro ----------
+  function applyTheme() {
+    const t = settings.theme || 'dark';
+    const dark = t === 'auto' ? !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) : t === 'dark';
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    const m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', dark ? '#0b0d12' : '#f3f4f7');
+  }
+
   // ---------- acciones ----------
   function getRep(el) { const p = +el.dataset.p, b = +el.dataset.b, r = +el.dataset.r; return { p, b, r, rep: draft.workout.parts[p].blocks[b].reps[r] }; }
   function focusNext(p, b, r) {
@@ -1088,6 +1239,18 @@
       case 'expand': el.classList.toggle('clamp'); break;
       case 'toggle-edit': S.edit = !S.edit; render(); if (S.edit) toast('Modo edición activado'); break;
       case 'settings': S.view = 'settings'; render(); window.scrollTo(0, 0); break;
+      case 'ptarget': if (setPartTarget(W.parts[+el.dataset.p])) { persistDraft(); render(); } break;
+      case 'dur': W.dur = +el.dataset.v; persistDraft(); render(); break;
+      case 'pain': {
+        let z = el.dataset.z;
+        if (!z) { z = prompt('¿Dónde? (ej. planta del pie, lumbar…)'); if (!z || !z.trim()) break; z = cap(z.trim()); }
+        W.pains = W.pains || []; const ix = W.pains.indexOf(z); if (ix >= 0) W.pains.splice(ix, 1); else W.pains.push(z);
+        persistDraft(); render(); break;
+      }
+      case 'pbadd': if (askPB(null)) render(); break;
+      case 'pbedit': { const pb = pbs.find(x => x.id === el.dataset.id); if (pb && askPB(pb)) render(); break; }
+      case 'pbdel': if (confirm('¿Borrar esta marca?')) { pbs = pbs.filter(x => x.id !== el.dataset.id); save(LS_PB, pbs); render(); } break;
+      case 'theme': settings.theme = el.dataset.v; save(LS_SET, settings); applyTheme(); render(); break;
       case 'wtag': S.tagWeek = S.tagWeek === el.dataset.k ? null : el.dataset.k; render(); break;
       case 'setwtag': { const k = el.dataset.k; if (el.dataset.t) weekTags[k] = el.dataset.t; else delete weekTags[k]; save(LS_WK, weekTags); S.tagWeek = null; render(); break; }
       case 'mic': toggleMic(); break;
@@ -1180,12 +1343,13 @@
     if (el.id === 'raw') { draft.raw = el.value; persistDraft(); return; }
     if (el.id === 'quick') { draft.quick = el.value; persistDraft(); return; }
     if (el.id === 'comment') { draft.workout.comment = el.value; persistDraft(); return; }
+    if (el.id === 'dur') { draft.workout.dur = parseInt(el.value, 10) || null; persistDraft(); return; }
     const a = el.dataset.act;
     if (gymInput(a, el) || calcInput(a, el)) return;
     if (a === 'load') { const { rep } = getRep(el); rep.load = el.value; persistDraft(); return; }
     if (a === 'val') {
       const { p, b, r, rep } = getRep(el); rep.value = el.value;
-      const pc = document.getElementById(`pc-${p}-${b}-${r}`); if (pc) pc.textContent = hint(rep);
+      const pc = document.getElementById(`pc-${p}-${b}-${r}`); if (pc) { pc.textContent = hint(rep); pc.className = hintCls(rep); }
       persistDraft();
     } else if (a === 'editlab') {
       const { rep } = getRep(el); rep.label = el.value;
@@ -1267,5 +1431,7 @@
   }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
+  applyTheme();
+  if (window.matchMedia) { const mq = window.matchMedia('(prefers-color-scheme: light)'); if (mq.addEventListener) mq.addEventListener('change', applyTheme); }
   render();
 })();
