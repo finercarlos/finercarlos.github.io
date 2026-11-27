@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '6';
+  const VERSION = '7';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -187,7 +187,7 @@
     const unitLab = r.unit === 'm' ? 'metros' : (r.dist ? 'm' : '');
     const ph = r.status === 'skipped' ? (r.value ? 'Incompleta' : 'No hecha') : (r.unit === 'm' ? 'distancia (m)' : (r.dist >= 400 ? 'tiempo · ej 1,25' : r.dist <= 150 ? 'tiempo · ej 6,85' : 'tiempo · ej 52,4'));
     const lab = S.edit
-      ? `<input class="editlab" inputmode="text" data-act="editlab" data-p="${p}" data-b="${b}" data-r="${i}" value="${esc(r.label)}">`
+      ? `<button class="editlab" data-act="editdist" data-p="${p}" data-b="${b}" data-r="${i}">${esc(r.label)}<small style="display:block;font-size:10px;color:var(--acc);font-weight:700">cambiar</small></button>`
       : `<div class="lab">${esc(r.dist ? r.dist : r.label.split(' ')[0])}<small>${esc(r.dist ? unitLab + ' ' + r.label.replace(/^[\d.,]+\s*/, '') : r.label.split(' ').slice(1).join(' '))}${r.optional ? ' · opc.' : ''}</small></div>`;
     const btns = S.edit
       ? `<button class="ib del" data-act="delrep" data-p="${p}" data-b="${b}" data-r="${i}" aria-label="Borrar serie">${ICON.trash}</button>`
@@ -257,7 +257,7 @@
         bl.reps.forEach((r, i) => {
           h += repRow(r, p, b, i);
           if (i < bl.reps.length - 1) {
-            h += S.edit ? `<div class="rest"><input class="field" style="padding:4px 8px;font-size:12px;width:120px" data-act="editrest" data-p="${p}" data-b="${b}" data-r="${i}" value="${esc(r.rest)}" placeholder="descanso"></div>`
+            h += S.edit ? `<div class="rest"><button class="chip" style="padding:5px 10px;font-size:12px" data-act="editrest" data-p="${p}" data-b="${b}" data-r="${i}">${r.rest ? esc(r.rest) : '+ descanso'} ✏️</button></div>`
               : (r.rest ? `<div class="rest">${esc(r.rest)}</div>` : '');
           }
         });
@@ -860,6 +860,23 @@
       case 'expand': el.classList.toggle('clamp'); break;
       case 'toggle-edit': S.edit = !S.edit; render(); if (S.edit) toast('Modo edición activado'); break;
       case 'settings': S.view = 'settings'; render(); window.scrollTo(0, 0); break;
+      case 'editdist': {
+        const { p, rep } = getRep(el); const old = rep.label;
+        const v = prompt('Distancia de esta serie (metros):', String(rep.dist || parseFloat(old) || ''));
+        if (v == null) break;
+        const n = parseFloat(String(v).replace(',', '.'));
+        if (isNaN(n) || n <= 0) { toast('Escribe un número de metros'); break; }
+        const apply = x => { x.label = x.label.replace(/^[\d.,]+/, '') === x.label ? String(n) : x.label.replace(/^[\d.,]+/, String(n)); if (x.unit !== 'm') x.dist = n; };
+        const same = []; W.parts[p].blocks.forEach(bl => bl.reps.forEach(x => { if (x !== rep && x.label === old) same.push(x); }));
+        apply(rep);
+        if (same.length && confirm('¿Cambiar también las otras ' + same.length + ' series de ' + old + ' de "' + W.parts[p].title + '" a ' + n + ' m?')) same.forEach(apply);
+        persistDraft(); render(); break;
+      }
+      case 'editrest': {
+        const { rep } = getRep(el);
+        const v = prompt("Descanso después de esta serie (ej. 2', 1'30\", andando). Déjalo vacío para quitarlo:", rep.rest || '');
+        if (v == null) break; rep.rest = v.trim(); persistDraft(); render(); break;
+      }
       case 'photo': photoClick(); break;
       case 'choose-gym': draft.workout = buildGymWorkout(draft.parsed.gym); draft.stage = 'form'; S.edit = false; persistDraft(); render(); window.scrollTo(0, 0); break;
       case 'as-run': draft.parsed = TrainParser.parseWorkout(draft.raw); draft.stage = 'choose'; persistDraft(); render(); break;
