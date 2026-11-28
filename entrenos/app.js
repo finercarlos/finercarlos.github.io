@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '11';
+  const VERSION = '12';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -136,6 +136,8 @@
           <button class="btn" data-act="photo">📷 Foto</button>
           <button class="btn pri grow" data-act="analyze">Analizar</button>
         </div>
+        <div class="card small" style="margin-top:10px"><b>¿Foto de pizarra o libreta?</b> Pásala por la app de Claude (tu plan, sin coste extra): compártela a Claude, pega las instrucciones, copia la respuesta y pégala aquí arriba.
+          <button class="btn block" data-act="copyclaude" style="margin-top:8px">📋 Copiar instrucciones para Claude</button></div>
         <div class="card" style="margin-top:16px"><b>✍️ ¿Entrenaste sin mensaje del entrenador?</b>
           <p class="small muted" style="margin:4px 0 8px">Cuéntamelo en una frase y lo apunto. Ej: <i>"Rodaje 30 min y 6x200 a 31"</i> o <i>"Gym: sentadilla y press banca, piernas cargadas"</i>.</p>
           <div style="position:relative"><textarea class="field" id="quick" style="min-height:64px;padding-right:56px" placeholder="Qué hiciste… (o pulsa el micro y dímelo)">${esc(draft.quick || '')}</textarea>
@@ -782,7 +784,7 @@
 
   function ocrStatusHtml() {
     const o = S.ocr; if (!o) return '';
-    if (o.state === 'nokey') return `<div class="card small" style="margin-top:10px;border-color:var(--acc)">Para leer fotos automáticamente tienes que poner tu clave de Claude en <button class="addrep" style="padding:0" data-act="settings">Ajustes</button>.<br><br><b>Truco gratis:</b> abre la foto en Fotos, mantén pulsado el texto → Seleccionar todo → Copiar, y pégalo aquí.</div>`;
+    if (o.state === 'nokey') return `<div class="card small" style="margin-top:10px;border-color:var(--acc)">Para leer fotos automáticamente dentro de la app hace falta una clave de API de pago (en <button class="addrep" style="padding:0" data-act="settings">Ajustes</button>).<br><br><b>Sin coste extra:</b> usa la app de Claude de tu plan con el botón "📋 Copiar instrucciones para Claude" de abajo.<br><br><b>Truco del iPhone:</b> abre la foto en Fotos, mantén pulsado el texto → Seleccionar todo → Copiar, y pégalo aquí.</div>`;
     if (o.state === 'busy') return `<div class="card small" style="margin-top:10px">⏳ Leyendo foto ${o.i} de ${o.n}… (unos segundos)</div>`;
     if (o.state === 'done') return `<div class="card small" style="margin-top:10px;border-color:var(--ok)">✓ Texto de ${o.n} foto${o.n > 1 ? 's' : ''} añadido. Revísalo, pega debajo las aclaraciones del entrenador y pulsa <b>Analizar</b>.</div>`;
     if (o.state === 'error') return `<div class="card small" style="margin-top:10px;border-color:var(--bad)">⚠️ ${esc(o.msg)}</div>`;
@@ -1008,6 +1010,19 @@
     });
     h += `<details style="margin-top:10px"><summary>¿Cómo se calcula?</summary><div class="tiny muted">50 = igual que antes. Ritmo (50%): cada 1% más rápido suma 10 puntos; cuentan el doble las series de 200 a 1000 m (lo más cercano a tu 400/800). Esfuerzo (20%): bajar el RPE con el mismo ritmo suma. Constancia (20%): series hechas y entrenos en las últimas 4 semanas (8 = completo). Fuerza (10%): cambios de tus RMs. Las descargas no restan por hacer menos volumen.</div></details></div>`;
     return h;
+  }
+
+  const CLAUDE_INSTR = 'Transcribe exactamente el entrenamiento de esta foto (atletismo o gimnasio). Mantén los saltos de línea, la numeración, los números, las series (por ejemplo 3 x 300, 12+10+8, (8+6)), los porcentajes, los descansos y los símbolos (x, +, -, \', ", %, flechas) en el mismo orden. No añadas títulos, comentarios ni explicaciones y no interpretes nada. Si algo es ilegible escribe [?]. Devuelve solo el texto.';
+  function copyText(t, ok) {
+    const done = () => toast(ok);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done).catch(() => fallbackCopy(t, done));
+    else fallbackCopy(t, done);
+  }
+  function fallbackCopy(t, done) {
+    const ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
+    try { document.execCommand('copy'); done(); } catch (e) { prompt('Copia este texto:', t); }
+    document.body.removeChild(ta);
   }
 
   // ---------- dictado por voz ----------
@@ -1254,6 +1269,7 @@
       case 'wtag': S.tagWeek = S.tagWeek === el.dataset.k ? null : el.dataset.k; render(); break;
       case 'setwtag': { const k = el.dataset.k; if (el.dataset.t) weekTags[k] = el.dataset.t; else delete weekTags[k]; save(LS_WK, weekTags); S.tagWeek = null; render(); break; }
       case 'mic': toggleMic(); break;
+      case 'copyclaude': copyText(CLAUDE_INSTR, 'Instrucciones copiadas: pégalas en Claude junto a la foto'); break;
       case 'quickrpe': draft.quickRpe = draft.quickRpe === +el.dataset.v ? null : +el.dataset.v; persistDraft(); render(); break;
       case 'quicksave': {
         const txt = (document.getElementById('quick').value || '').trim();
