@@ -1,7 +1,7 @@
 /* Entrenos — app de registro de entrenamientos (PWA, datos en el propio móvil) */
 (function () {
   'use strict';
-  const VERSION = '12';
+  const VERSION = '13';
   const LS_W = 'entrenos.workouts.v1', LS_D = 'entrenos.draft.v1', LS_RM = 'entrenos.rms.v1', LS_SET = 'entrenos.settings.v1', LS_CALC = 'entrenos.calc.v1';
   const SEED_EX = ['Clean and jerk', 'Arrancada', 'Cargada', 'Coso', 'Peso muerto', 'Sentadilla 90', 'Hip thrust', 'Press banca', 'Gemelos barra', 'Jalón', 'Remo sentado'];
   const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -24,6 +24,8 @@
   function persistRM() { save(LS_RM, rms); }
   const LS_WK = 'entrenos.weeks.v1', LS_PB = 'entrenos.pbs.v1';
   let pbs = load(LS_PB, []);
+  const LS_COMP = 'entrenos.comps.v1';
+  let comps = load(LS_COMP, []);
   let weekTags = load(LS_WK, null);
   if (!weekTags) { weekTags = {}; weekTags[weekStart(todayISO())] = 'C1'; save(LS_WK, weekTags); }
 
@@ -113,9 +115,11 @@
 
   // ---------- vistas ----------
   function render() {
-    document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.nav === (S.view === 'detail' ? 'history' : S.view === 'settings' ? 'input' : S.view)));
+    document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.nav === ({ detail: 'history', report: 'history', settings: 'input', comp: 'progress' }[S.view] || S.view)));
     $hdr.innerHTML = '';
-    if (S.view === 'calc') renderCalc();
+    if (S.view === 'comp') renderComp();
+    else if (S.view === 'report') renderReport();
+    else if (S.view === 'calc') renderCalc();
     else if (S.view === 'settings') renderSettings();
     else if (S.view === 'input') renderInput();
     else if (S.view === 'history') renderHistory();
@@ -128,6 +132,7 @@
       $title.innerHTML = 'Nuevo entreno<small>Pega el mensaje o sube una foto</small>';
       $hdr.innerHTML = '<button class="hdrbtn" data-act="settings">Ajustes</button>';
       $app.innerHTML = `
+        ${compCountdownHtml(true)}
         <div class="datebox"><input type="date" id="date" value="${esc(draft.date)}"> ${dayInfo(draft.date)}</div>
         <textarea id="raw" placeholder="Pega aquí el entrenamiento (carrera o gimnasio) tal cual te lo manda tu entrenador. Puedes juntar fotos y mensajes: el texto de cada foto se añade aquí y debajo pegas las aclaraciones…">${esc(draft.raw)}</textarea>
         <div id="ocrstatus">${ocrStatusHtml()}</div>
@@ -310,6 +315,10 @@
   function renderHistory() {
     $title.innerHTML = 'Historial<small>' + workouts.length + ' entrenamientos</small>';
     if (!workouts.length) { $app.innerHTML = '<div class="empty">Aún no hay entrenos guardados.<br><br>Pega el primero en <b>Entreno</b>.</div>' + backupHtml(); return; }
+    $hdr.innerHTML = '<button class="hdrbtn" data-act="report">📄 Informe</button>';
+    $app.innerHTML = `<input class="field" id="hsearch" type="search" placeholder="🔍 Buscar: 300, cuestas, gemelo, press…" value="${esc(S.q || '')}" style="margin-bottom:14px" autocomplete="off"><div id="hlist">${S.q ? searchResults(S.q) : weeksHtml()}</div>` + backupHtml();
+  }
+  function weeksHtml() {
     let h = '';
     weekGroups().forEach(({ k, items }) => {
       const end = parseISO(k); end.setDate(end.getDate() + 6);
@@ -320,13 +329,10 @@
       h += `<div class="week"><div class="weekh"><b>Semana ${isoWeekNum(k)} · ${start.getDate()} ${MONTHS[start.getMonth()]} – ${end.getDate()} ${MONTHS[end.getMonth()]}</b><span>${sd}</span></div>
         <div style="margin:-2px 2px 8px">${(() => { const ti = weekTagInfo(k); return `<button class="pill ${ti && ti.tag !== 'D' ? 'acc' : ''}" data-act="wtag" data-k="${k}" style="${ti && ti.auto ? 'border-style:dashed;opacity:.75' : ''}">${ti ? TAGS[ti.tag] + (ti.auto ? ' ?' : '') : 'Marcar carga/descarga'}</button>`; })()}${S.tagWeek === k ? tagPicker(k) : ''}</div>
         <div class="small muted" style="margin:-4px 2px 8px">${items.length} sesión${items.length > 1 ? 'es' : ''}${km ? ' · ' + (km / 1000).toFixed(2).replace('.', ',') + ' km de series' : ''}</div>`;
-      items.forEach(w => {
-        const sums = (w.type === 'free' ? '<div>' + esc(w.raw.length > 110 ? w.raw.slice(0, 108) + '…' : w.raw) + '</div>' : '') + gymSummary(w) + w.parts.map(p => { const s = partSummary(p); return s ? '<div>' + esc(p.title) + ': ' + esc(s) + '</div>' : ''; }).join('');
-        h += `<button class="wo" data-act="open" data-id="${w.id}"><div class="d">${fmtDate(w.date)}${w.rpe ? ' · RPE ' + w.rpe : ''}</div><div class="g">${w.type === 'gym' ? '🏋 ' : ''}${esc(w.type === 'gym' ? w.group : prettyTitle(w.group))}</div><div class="s">${sums || 'Sin tiempos'}</div></button>`;
-      });
+      items.forEach(w => { h += woCard(w); });
       h += '</div>';
     });
-    $app.innerHTML = h + backupHtml();
+    return h;
   }
   function backupHtml() {
     return `<div class="card" style="margin-top:24px"><b>Copia de seguridad</b><p class="small muted" style="margin:4px 0 10px">Los datos viven solo en este móvil. Exporta de vez en cuando.</p>
@@ -344,6 +350,8 @@
     if (w.type === 'gym') h += `<div class="stat"><div><b>${(w.lifts || []).reduce((a, l) => a + l.sets.filter(x => x.status === 'locked').length, 0)}</b><span>series de fuerza</span></div><div><b>${w.pct ? w.pct + '%' : '—'}</b><span>del RM</span></div><div><b>${w.rpe || '—'}</b><span>RPE</span></div></div>`;
     else h += `<div class="stat"><div><b>${reps.length}</b><span>series hechas</span></div><div><b>${(meters(w) / 1000).toFixed(2).replace('.', ',')} km</b><span>volumen</span></div><div><b>${w.rpe || '—'}</b><span>RPE</span></div></div>`;
     { const gd = guessDur(w); if (w.rpe) h += `<div class="small muted" style="margin:-2px 2px 10px">Duración ${gd.est ? '≈' : ''}${gd.v} min · carga ${sessionLoad(w)} (min × RPE)</div>`; }
+    if (w.weather || w.windFeel) h += `<div class="small muted" style="margin:-4px 2px 10px">${w.weather ? weatherLine(w.weather) : ''}${w.windFeel ? (w.weather ? ' · ' : '') + 'viento ' + esc(w.windFeel) : ''}</div>`;
+    else if (settings.loc) h += `<button class="addrep" data-act="addweather" style="margin:-6px 0 8px">🌦 Añadir el clima de ese día</button>`;
     if ((w.pains || []).length) h += `<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${w.pains.map(z => `<span class="pill" style="color:var(--bad);border-color:var(--bad)">🩹 ${esc(z)}</span>`).join('')}</div>`;
     sessionDrops(w).forEach(d => { h += `<div class="card small" style="border-color:var(--acc2)">⚠️ ${esc(d.part)}: tus ${d.dist} m cayeron un ${d.ch.toFixed(1).replace('.', ',')}% (de ${fmtT(d.first)} a ${fmtT(d.last)}). Más de un 3% suele indicar fatiga o salida demasiado rápida.</div>`; });
     if (w.comment) h += `<ul class="notes"><li>${esc(w.comment)}</li></ul>`;
@@ -369,6 +377,7 @@
     });
     if (w.raw) h += `<details class="card"><summary>Mensaje original del entrenador</summary><div class="parttxt">${esc(w.raw)}</div></details>`;
     h += `<div class="row"><button class="btn grow" data-act="share">Enviar al entrenador</button><button class="btn grow" data-act="editw">Editar</button></div>
+      <button class="btn block" data-act="repeatw" style="margin-top:8px">🔁 Repetir este entreno hoy</button>
       <button class="btn ghost block" data-act="delw" style="margin-top:8px;color:var(--bad)">Borrar entreno</button>`;
     $app.innerHTML = h;
   }
@@ -377,11 +386,12 @@
     let t = prettyTitle(w.group) + ' — ' + fmtDate(w.date, true) + '\n';
     if (w.type === 'gym') t += gymShareText(w);
     w.parts.forEach(part => {
-      t += '\n' + part.title + '\n';
+      let pt = '';
       part.blocks.forEach((bl, b) => {
-        const xs = bl.reps.map(r => r.status === 'skipped' ? r.label + ' ✗' : r.status === 'locked' || r.value ? r.label + ' ' + (r.unit === 'm' ? r.value + 'm' : fmtT(repSec(r))) : null).filter(Boolean);
-        if (xs.length) t += (part.blocks.length > 1 ? 'B' + (b + 1) + ': ' : '') + xs.join(' | ') + '\n';
+        const xs = bl.reps.map(r => r.status === 'skipped' ? r.label + ' ✗' : (r.status === 'locked' && r.value) || r.value ? r.label + ' ' + (r.unit === 'm' ? r.value + 'm' : fmtT(repSec(r))) : null).filter(Boolean);
+        if (xs.length) pt += (part.blocks.length > 1 ? 'B' + (b + 1) + ': ' : '') + xs.join(' | ') + '\n';
       });
+      if (pt) t += '\n' + part.title + '\n' + pt;
     });
     if (w.rpe) t += '\nRPE ' + w.rpe;
     if (w.comment) t += '\n' + w.comment;
@@ -391,7 +401,7 @@
   // ---------- progresión ----------
   function renderProgress() {
     $title.innerHTML = 'Progreso<small>Forma, ciclos y marcas</small>';
-    const top = warningsHtml() + formHtml() + cyclesHtml() + painsHtml() + pbsHtml() + '<h2 style="margin-top:22px">Por distancia y ejercicio</h2>';
+    const top = warningsHtml() + formHtml() + compsHtml() + cyclesHtml() + painsHtml() + pbsHtml() + '<h2 style="margin-top:22px">Por distancia y ejercicio</h2>';
     const series = {}; // label -> [{date, vals}]
     workouts.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(w => {
       const per = {};
@@ -771,7 +781,12 @@
     $hdr.innerHTML = '<button class="hdrbtn" data-act="back-input">‹ Volver</button>';
     const k = settings.apiKey;
     const th = settings.theme || 'dark';
-    $app.innerHTML = `<div class="card"><b>Apariencia</b><div class="chips" style="margin:8px 0 0">${[['dark', '🌙 Oscuro'], ['light', '☀️ Claro (pista)'], ['auto', 'Automático']].map(([v, l]) => `<button class="chip ${th === v ? 'on' : ''}" data-act="theme" data-v="${v}">${l}</button>`).join('')}</div></div>
+    const loc = settings.loc;
+    $app.innerHTML = `<div class="card"><b>Clima automático</b><p class="small muted" style="margin:4px 0 8px">Pon la ciudad donde entrenas y cada entreno guardará la temperatura y el viento de ese día (gratis, servicio Open-Meteo).</p>
+      ${loc ? `<div class="small" style="margin-bottom:8px">📍 <b>${esc(loc.name)}</b> <button class="addrep" style="color:var(--bad);padding:0 0 0 8px" data-act="delloc">quitar</button></div>` : ''}
+      <div class="row"><input class="field grow" id="loc-q" placeholder="Ciudad (ej. Sevilla)" autocomplete="off"><button class="btn" data-act="setloc">Buscar</button></div>
+      <button class="addrep" data-act="geoloc">📍 Usar mi ubicación actual</button></div>
+      <div class="card"><b>Apariencia</b><div class="chips" style="margin:8px 0 0">${[['dark', '🌙 Oscuro'], ['light', '☀️ Claro (pista)'], ['auto', 'Automático']].map(([v, l]) => `<button class="chip ${th === v ? 'on' : ''}" data-act="theme" data-v="${v}">${l}</button>`).join('')}</div></div>
       <div class="card"><b>Leer fotos con IA (Claude)</b>
       <p class="small muted">Para pasar a texto las fotos de la pizarra o la libreta, la app usa Claude, la IA de Anthropic. Necesitas una clave de API propia: créala en <b>console.anthropic.com</b> → API Keys y pégala aquí. Cada foto cuesta unos 2-4 céntimos y se cobra en tu cuenta de Anthropic. Te recomiendo ponerle un límite de gasto mensual en la consola.</p>
       <p class="small muted">La clave se guarda solo en este móvil y únicamente se envía a Anthropic al leer una foto.</p>
@@ -1160,6 +1175,8 @@
     const zones = PAIN_ZONES.concat(pains.filter(z => !PAIN_ZONES.includes(z)));
     return `<div class="small muted" style="margin:12px 0 6px">Duración total (min) <span class="tiny">· para calcular tu carga (min × RPE)</span></div>
       <div class="row" style="flex-wrap:wrap;gap:6px"><input class="field" id="dur" inputmode="numeric" style="width:80px" value="${esc(w.dur || '')}" placeholder="min">${[45, 60, 75, 90, 120].map(m => `<button class="chip ${+w.dur === m ? 'on' : ''}" style="padding:6px 10px;font-size:13px" data-act="dur" data-v="${m}">${m}</button>`).join('')}</div>
+      <div class="small muted" style="margin:12px 0 6px">Viento <span class="tiny">(el clima se apunta solo si pones tu ciudad en Ajustes)</span></div>
+      <div class="row" style="flex-wrap:wrap;gap:6px">${['a favor en recta', 'en contra en recta', 'lateral / racheado', 'sin viento'].map(v => `<button class="chip ${w.windFeel === v ? 'on' : ''}" style="padding:6px 10px;font-size:13px" data-act="wind" data-v="${v}">${v}</button>`).join('')}</div>
       <div class="small muted" style="margin:12px 0 6px">¿Alguna molestia?</div>
       <div class="row" style="flex-wrap:wrap;gap:6px">${zones.map(z => `<button class="chip ${pains.includes(z) ? 'on' : ''}" style="padding:6px 10px;font-size:13px;${pains.includes(z) ? 'background:var(--bad);border-color:var(--bad)' : ''}" data-act="pain" data-z="${esc(z)}">${esc(z)}</button>`).join('')}<button class="chip" style="padding:6px 10px;font-size:13px" data-act="pain" data-z="">+ Otra</button></div>`;
   }
@@ -1205,6 +1222,215 @@
     const dark = t === 'auto' ? !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) : t === 'dark';
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     const m = document.querySelector('meta[name=theme-color]'); if (m) m.setAttribute('content', dark ? '#0b0d12' : '#f3f4f7');
+  }
+
+  // ---------- repetir entreno ----------
+  function resetWorkout(src) {
+    const w = JSON.parse(JSON.stringify(src));
+    w.id = null; w.date = todayISO(); w.rpe = null; w.comment = ''; w.dur = null; w.pains = []; w.weather = null; w.windFeel = ''; delete w.savedAt;
+    (w.parts || []).forEach(p => p.blocks.forEach(b => b.reps.forEach(r => { r.value = ''; r.status = 'pending'; if (r.load !== undefined) r.load = ''; })));
+    (w.lifts || []).forEach(l => l.sets.forEach(x => { x.value = ''; x.status = 'pending'; x.repsDone = null; delete x.target; }));
+    (w.applied || []).forEach(g => g.variants.forEach(v => { v.done = v.done.map(() => false); v.load = ''; }));
+    return w;
+  }
+
+  // ---------- búsqueda en el historial ----------
+  function wText(w) {
+    const bits = [w.group, w.raw, w.comment, (w.pains || []).join(' '), (w.notes || []).join(' ')];
+    (w.parts || []).forEach(p => { bits.push(p.title); p.blocks.forEach(b => b.reps.forEach(r => bits.push(r.label))); });
+    (w.lifts || []).forEach(l => bits.push(l.name));
+    (w.applied || []).forEach(g => { bits.push(g.name); g.variants.forEach(v => bits.push(v.name)); });
+    bits.push(fmtDate(w.date, true));
+    return nk(bits.join(' '));
+  }
+  function woCard(w) {
+    const sums = (w.type === 'free' ? '<div>' + esc(w.raw.length > 110 ? w.raw.slice(0, 108) + '…' : w.raw) + '</div>' : '') + gymSummary(w) + w.parts.map(p => { const s = partSummary(p); return s ? '<div>' + esc(p.title) + ': ' + esc(s) + '</div>' : ''; }).join('');
+    return `<button class="wo" data-act="open" data-id="${w.id}"><div class="d">${fmtDate(w.date)}${w.rpe ? ' · RPE ' + w.rpe : ''}${w.weather ? ' · ' + esc(weatherShort(w.weather)) : ''}</div><div class="g">${w.type === 'gym' ? '🏋 ' : ''}${esc(w.type === 'gym' ? w.group : prettyTitle(w.group))}</div><div class="s">${sums || 'Sin tiempos'}</div></button>`;
+  }
+  function searchResults(q) {
+    const terms = nk(q).split(' ').filter(Boolean);
+    const res = workouts.filter(w => { const t = wText(w); return terms.every(x => t.includes(x)); }).sort((a, b) => b.date.localeCompare(a.date));
+    if (!res.length) return `<div class="empty" style="padding:30px 10px">Nada con "${esc(q)}"</div>`;
+    return `<div class="small muted" style="margin:0 2px 8px">${res.length} resultado${res.length > 1 ? 's' : ''}</div>` + res.map(woCard).join('');
+  }
+
+  // ---------- clima (Open-Meteo, gratis y sin clave) ----------
+  const WCODE = c => c == null ? '' : c === 0 ? '☀️ despejado' : c <= 3 ? '⛅ nuboso' : c <= 48 ? '🌫 niebla' : c <= 57 ? '🌦 llovizna' : c <= 67 ? '🌧 lluvia' : c <= 77 ? '🌨 nieve' : c <= 82 ? '🌧 chubascos' : '⛈ tormenta';
+  const COMPASS = d => ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'][Math.round(((d % 360) + 360) % 360 / 45) % 8];
+  function weatherShort(x) { return x ? Math.round(x.t) + '° · 💨' + Math.round(x.wind) + ' km/h' : ''; }
+  function weatherLine(x) {
+    if (!x) return '';
+    return `${WCODE(x.code)} · 🌡 ${Math.round(x.t)}° · 💨 ${Math.round(x.wind)} km/h ${x.dir != null ? COMPASS(x.dir) : ''}${x.gust ? ' (rachas ' + Math.round(x.gust) + ')' : ''}${x.rain ? ' · ' + x.rain.toFixed(1).replace('.', ',') + ' mm' : ''}${x.place ? ' · ' + esc(x.place) : ''}`;
+  }
+  async function fetchWeather(lat, lon, dateISO, hour) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,wind_speed_10m,wind_gusts_10m,wind_direction_10m,precipitation,weather_code&timezone=auto&start_date=${dateISO}&end_date=${dateISO}`;
+    const r = await fetch(url); if (!r.ok) throw new Error('clima ' + r.status);
+    const j = await r.json(); const H = j.hourly; if (!H || !H.time) throw new Error('sin datos');
+    const i = Math.max(0, Math.min(H.time.length - 1, hour));
+    return { t: H.temperature_2m[i], wind: H.wind_speed_10m[i], gust: H.wind_gusts_10m ? H.wind_gusts_10m[i] : null, dir: H.wind_direction_10m[i], rain: H.precipitation[i], code: H.weather_code[i], hour: i };
+  }
+  async function geocode(name) {
+    const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=1&language=es&name=' + encodeURIComponent(name));
+    const j = await r.json(); const g = j.results && j.results[0];
+    return g ? { lat: g.latitude, lon: g.longitude, name: g.name + (g.admin1 ? ', ' + g.admin1 : '') } : null;
+  }
+  function daysFromToday(dateISO) { return Math.round((parseISO(dateISO) - parseISO(todayISO())) / 864e5); }
+  async function addWeatherToWorkout(id) {
+    const loc = settings.loc; if (!loc) return;
+    const w = workouts.find(x => x.id === id); if (!w) return;
+    const dd = daysFromToday(w.date); if (dd < -90 || dd > 15) return;
+    const hour = dd === 0 ? new Date().getHours() : 18;
+    try {
+      const x = await fetchWeather(loc.lat, loc.lon, w.date, hour); x.place = loc.name;
+      const w2 = workouts.find(y => y.id === id); if (!w2) return; w2.weather = x; persistW();
+      if (S.view === 'detail' && S.detailId === id) render();
+    } catch (e) { /* sin conexión: se puede añadir luego */ }
+  }
+  async function addWeatherToComp(c) {
+    if (!c.place) return; const dd = daysFromToday(c.date); if (dd < -90 || dd > 15) return;
+    try {
+      const g = await geocode(c.place); if (!g) return;
+      const x = await fetchWeather(g.lat, g.lon, c.date, 18); x.place = g.name;
+      const c2 = comps.find(y => y.id === c.id); if (!c2) return; c2.weather = x; save(LS_COMP, comps); render();
+    } catch (e) { }
+  }
+
+  // ---------- competiciones ----------
+  const PRIOS = { A: 'A · objetivo', B: 'B · importante', C: 'C · preparación' };
+  function nextComp() { return comps.filter(c => daysFromToday(c.date) >= 0).sort((a, b) => a.date.localeCompare(b.date))[0] || null; }
+  function countdownTxt(c) {
+    const d = daysFromToday(c.date);
+    if (d === 0) return '¡Es hoy!';
+    if (d === 1) return 'Mañana';
+    return `Faltan ${d} días` + (d >= 7 ? ` (${Math.floor(d / 7)} sem${d % 7 ? ' y ' + (d % 7) + ' d' : ''})` : '');
+  }
+  function compCountdownHtml(compact) {
+    const c = nextComp(); if (!c) return '';
+    const d = daysFromToday(c.date); if (compact && d > 60) return '';
+    const taper = d <= 14;
+    return `<button class="opt" data-act="compopen" data-id="${c.id}" style="border-color:var(--acc)"><div class="row" style="justify-content:space-between"><b style="font-size:16px">🏁 ${esc(c.name || 'Competición')}</b><span class="pill acc">${esc(c.priority || 'B')}</span></div>
+      <div class="small">${fmtDate(c.date, true)}${c.place ? ' · ' + esc(c.place) : ''}</div>
+      <div style="font-weight:800;font-size:18px;margin-top:4px">${countdownTxt(c)}</div>
+      ${taper ? `<div class="small" style="color:var(--acc2);margin-top:4px">Puesta a punto: menos volumen, mantener la intensidad, dormir bien.</div>` : ''}
+      ${c.weather && d <= 15 ? `<div class="small muted" style="margin-top:4px">Previsión: ${weatherLine(c.weather)}</div>` : ''}</button>`;
+  }
+  function compsHtml() {
+    const up = comps.filter(c => daysFromToday(c.date) >= 0).sort((a, b) => a.date.localeCompare(b.date));
+    const past = comps.filter(c => daysFromToday(c.date) < 0).sort((a, b) => b.date.localeCompare(a.date));
+    let h = `<h2 style="margin-top:22px">Competiciones</h2>`;
+    if (up.length) h += compCountdownHtml(false);
+    up.slice(1).forEach(c => { h += `<button class="wo" data-act="compopen" data-id="${c.id}"><div class="d">${fmtDate(c.date, true)} · ${countdownTxt(c)}</div><div class="g">${esc(c.name || 'Competición')} <span class="pill">${esc(c.priority || 'B')}</span></div><div class="s">${esc(c.place || '')}${(c.events || []).length ? ' · ' + esc(c.events.map(e => e.prueba).filter(Boolean).join(', ')) : ''}</div></button>`; });
+    past.forEach(c => {
+      const f = formState(c.date); const wk = weekTagInfo(weekStart(c.date)); const l7 = loadIn(1, 7, c.date);
+      const res = (c.events || []).filter(e => e.prueba).map(e => `<div><b>${esc(e.prueba)}</b>: ${e.resultado ? '<b>' + esc(e.resultado) + '</b>' : '—'}${e.objetivo ? ' <span class="muted">(obj. ' + esc(e.objetivo) + ')</span>' : ''}${e.puesto ? ' · ' + esc(e.puesto) : ''}${e.viento ? ' · viento ' + esc(e.viento) : ''}</div>`).join('');
+      h += `<button class="wo" data-act="compopen" data-id="${c.id}"><div class="d">${fmtDate(c.date, true)}${c.place ? ' · ' + esc(c.place) : ''}${c.venue === 'cubierta' ? ' · pista cubierta' : ''}</div><div class="g">${esc(c.name || 'Competición')} <span class="pill">${esc(c.priority || 'B')}</span></div><div class="s">${res || 'Sin resultados apuntados'}
+        <div class="tiny" style="margin-top:6px;color:var(--info)">Llegabas: ${f.enough ? 'forma ' + f.total : 'forma sin datos'}${wk ? ' · semana ' + TAGS[wk.tag] : ''} · carga 7 días ${l7 || '—'}${c.weather ? ' · ' + esc(weatherShort(c.weather)) : ''}</div></div></button>`;
+    });
+    h += `<button class="btn block" data-act="compnew">+ Añadir competición</button>`;
+    return h;
+  }
+  function renderComp() {
+    const c = S.compDraft;
+    $title.innerHTML = (c.id && comps.some(x => x.id === c.id) ? 'Competición' : 'Nueva competición') + '<small>' + (c.date ? fmtDate(c.date, true) : '') + '</small>';
+    $hdr.innerHTML = '<button class="hdrbtn" data-act="compback">‹ Volver</button>';
+    const past = c.date && daysFromToday(c.date) < 0;
+    let h = `<div class="card">
+      <label class="small muted">Nombre</label><input class="field" id="cf-name" value="${esc(c.name)}" placeholder="Campeonato de Andalucía Sub-23" style="margin:4px 0 10px">
+      <label class="small muted">Lugar</label><input class="field" id="cf-place" value="${esc(c.place)}" placeholder="Estadio de la Cartuja, Sevilla" style="margin:4px 0 10px">
+      <div class="row"><div class="grow"><label class="small muted">Fecha</label><input class="field" type="date" id="cf-date" value="${esc(c.date)}" style="margin-top:4px"></div>
+      <div class="grow"><label class="small muted">Pista</label><select class="field" id="cf-venue" style="margin-top:4px"><option value="aire" ${c.venue !== 'cubierta' ? 'selected' : ''}>Aire libre</option><option value="cubierta" ${c.venue === 'cubierta' ? 'selected' : ''}>Cubierta</option></select></div></div>
+      <label class="small muted" style="display:block;margin-top:10px">Prioridad</label><div class="chips" style="margin-top:4px">${Object.keys(PRIOS).map(p => `<button class="chip ${c.priority === p ? 'on' : ''}" data-act="cprio" data-v="${p}">${PRIOS[p]}</button>`).join('')}</div></div>`;
+    h += `<div class="card"><b>Pruebas</b>`;
+    (c.events || []).forEach((e, i) => {
+      h += `<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px">
+        <div class="row"><div class="grow"><label class="tiny muted">Prueba</label><input class="field" data-cev="${i}" data-f="prueba" value="${esc(e.prueba)}" placeholder="800"></div>
+        <div class="grow"><label class="tiny muted">Objetivo</label><input class="field" inputmode="decimal" data-cev="${i}" data-f="objetivo" value="${esc(e.objetivo)}" placeholder="2:05"></div></div>
+        ${past || e.resultado ? `<div class="row" style="margin-top:6px"><div class="grow"><label class="tiny muted">Resultado</label><input class="field" inputmode="decimal" data-cev="${i}" data-f="resultado" value="${esc(e.resultado)}" placeholder="2:04.5"></div>
+        <div class="grow"><label class="tiny muted">Puesto / ronda</label><input class="field" data-cev="${i}" data-f="puesto" value="${esc(e.puesto)}" placeholder="3º final"></div></div>
+        <div class="row" style="margin-top:6px"><div class="grow"><label class="tiny muted">Viento (m/s, si aplica)</label><input class="field" inputmode="decimal" data-cev="${i}" data-f="viento" value="${esc(e.viento)}" placeholder="+1,2"></div>
+        <button class="ib del" data-act="cevdel" data-i="${i}" style="margin-top:16px">${ICON.trash}</button></div>` : `<button class="addrep" style="color:var(--bad)" data-act="cevdel" data-i="${i}">Quitar prueba</button>`}</div>`;
+    });
+    h += `<button class="addrep" data-act="cevadd">+ Añadir prueba</button>${!past ? '<div class="tiny muted">Después de la competición vuelve aquí para apuntar resultado, puesto y viento.</div>' : ''}</div>`;
+    h += `<div class="card"><label class="small muted">Notas / sensaciones / táctica</label><textarea class="field" id="cf-notes" style="min-height:80px;margin-top:4px" placeholder="Calentamiento, cómo fue la carrera, qué mejorar…">${esc(c.notes)}</textarea></div>`;
+    if (c.weather) h += `<div class="card small">${weatherLine(c.weather)}</div>`;
+    h += `<button class="btn pri block" data-act="compsave">Guardar competición</button>`;
+    if (comps.some(x => x.id === c.id)) h += `<button class="btn ghost block" data-act="compdel" style="margin-top:8px;color:var(--bad)">Borrar competición</button>`;
+    $app.innerHTML = h;
+  }
+  function saveComp() {
+    const c = S.compDraft;
+    if (!c.date) { toast('Pon la fecha'); return; }
+    c.events = (c.events || []).filter(e => e.prueba || e.resultado);
+    const i = comps.findIndex(x => x.id === c.id);
+    if (i >= 0) comps[i] = c; else comps.push(c);
+    save(LS_COMP, comps);
+    // ¿nueva marca personal?
+    c.events.forEach(e => {
+      const dist = parseInt(e.prueba, 10); if (!dist || !e.resultado) return;
+      const sec = parseTime(String(e.resultado).replace(/(\d+),(\d{2}),(\d+)/, '$1:$2.$3'), dist); if (!sec) return;
+      const pb = pbs.filter(p => p.dist === dist).sort((a, b) => a.time - b.time)[0];
+      if (!pb || sec < pb.time) {
+        if (confirm(`🎉 ${e.resultado} en ${dist} m ${pb ? 'mejora tu marca (' + fmtT(pb.time).replace('.', ',') + ')' : 'es tu primera marca apuntada en esa distancia'}. ¿Guardarla en Mis marcas?`)) {
+          if (pb) Object.assign(pb, { time: sec, date: c.date }); else pbs.push({ id: uid(), dist, time: sec, date: c.date });
+          save(LS_PB, pbs);
+        }
+      }
+    });
+    S.view = 'progress'; S.compDraft = null; render(); window.scrollTo(0, 0); toast('Competición guardada');
+    addWeatherToComp(c);
+  }
+
+  // ---------- informe para el entrenador ----------
+  function reportRange(kind) {
+    const t = todayISO();
+    if (kind === '4w') return [addDays(weekStart(t), -21), t, 'Últimas 4 semanas'];
+    if (kind === 'month') { const d = parseISO(t); return [iso(new Date(d.getFullYear(), d.getMonth(), 1)), t, 'Este mes']; }
+    if (kind === 'pmonth') { const d = parseISO(t); return [iso(new Date(d.getFullYear(), d.getMonth() - 1, 1)), iso(new Date(d.getFullYear(), d.getMonth(), 0)), 'Mes anterior']; }
+    const cs = cyclesList(); const c = kind === 'pcycle' ? cs[1] : cs[0];
+    if (!c) return [addDays(weekStart(t), -21), t, 'Últimas 4 semanas'];
+    return [c.weeks[0].k, addDays(c.weeks[c.weeks.length - 1].k, 6), kind === 'pcycle' ? 'Ciclo anterior' : 'Ciclo actual'];
+  }
+  function renderReport() {
+    const kind = S.repKind || 'cycle';
+    const [a, b, label] = reportRange(kind);
+    $title.innerHTML = 'Informe<small>' + label + '</small>';
+    $hdr.innerHTML = '<button class="hdrbtn" data-act="back-hist">‹ Volver</button>';
+    const ws = workouts.filter(w => w.date >= a && w.date <= b).sort((x, y) => x.date.localeCompare(y.date));
+    let h = `<div class="chips noprint">${[['cycle', 'Ciclo actual'], ['pcycle', 'Ciclo anterior'], ['4w', '4 semanas'], ['month', 'Este mes'], ['pmonth', 'Mes anterior']].map(([k, l]) => `<button class="chip ${kind === k ? 'on' : ''}" data-act="repkind" data-k="${k}">${l}</button>`).join('')}</div>`;
+    h += `<div class="card"><b style="font-size:18px">Informe de entrenamiento</b><div class="small muted">${label}: ${fmtDate(a, true)} – ${fmtDate(b, true)}</div>`;
+    const runs = ws.filter(w => !isGymW(w)), gyms = ws.filter(isGymW);
+    const km = runs.reduce((x, w) => x + meters(w), 0), load = ws.reduce((x, w) => x + sessionLoad(w), 0);
+    const rp = ws.filter(w => w.rpe); const rpe = rp.length ? rp.reduce((x, w) => x + w.rpe, 0) / rp.length : null;
+    h += `<div class="stat"><div><b>${ws.length}</b><span>sesiones (${gyms.length} gym)</span></div><div><b>${(km / 1000).toFixed(1).replace('.', ',')} km</b><span>de series</span></div><div><b>${load || '—'}</b><span>carga total</span></div><div><b>${rpe ? rpe.toFixed(1).replace('.', ',') : '—'}</b><span>RPE medio</span></div></div>`;
+    const f = formState(b < todayISO() ? b : todayISO());
+    if (f.enough) h += `<div class="small" style="margin-top:6px">Estado de forma: <b>${f.total}</b>/100 · ${esc(f.parts[0].txt)}</div>`;
+    h += `</div>`;
+    // semanas
+    let wk = weekStart(a); h += `<div class="card"><b>Semanas</b><table class="tbl" style="margin-top:6px;font-size:13px"><tr class="muted tiny"><td>Semana</td><td class="r">Ses.</td><td class="r">km</td><td class="r">Carga</td><td class="r">RPE</td><td class="r">Eq. 800</td></tr>`;
+    while (wk <= b) { const st = weekStats(wk); const ti = weekTagInfo(wk); h += `<tr><td>${weekLabel(wk)}${ti ? '<div class="tiny muted">' + TAGS[ti.tag] + '</div>' : ''}</td><td class="r">${st.n || '—'}</td><td class="r">${st.meters ? (st.meters / 1000).toFixed(1).replace('.', ',') : '—'}</td><td class="r">${st.load || '—'}</td><td class="r">${st.rpe ? st.rpe.toFixed(1).replace('.', ',') : '—'}</td><td class="r">${st.eq ? fmtT(Math.round(st.eq * 10) / 10).replace('.', ',') : '—'}</td></tr>`; wk = addDays(wk, 7); }
+    h += `</table></div>`;
+    // sesiones
+    h += `<div class="card"><b>Sesiones</b>`;
+    ws.forEach(w => {
+      const s = shareText(w).split('\n').slice(1).join('\n').trim();
+      h += `<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px;break-inside:avoid"><div class="small"><b>${fmtDate(w.date)}</b> · ${esc(w.type === 'gym' ? w.group : prettyTitle(w.group))}${w.rpe ? ' · RPE ' + w.rpe : ''}${(w.pains || []).length ? ' · 🩹 ' + esc(w.pains.join(', ')) : ''}${w.weather ? ' · ' + esc(weatherShort(w.weather)) : ''}</div><div class="tiny" style="white-space:pre-line">${esc(s || (w.type === 'free' ? w.raw : ''))}</div></div>`;
+    });
+    h += `</div>`;
+    const cs = comps.filter(c => c.date >= a && c.date <= b);
+    if (cs.length) h += `<div class="card"><b>Competiciones</b>${cs.map(c => `<div class="small" style="margin-top:6px"><b>${esc(c.name)}</b> (${fmtDate(c.date)}): ${esc((c.events || []).map(e => e.prueba + ' ' + (e.resultado || '')).join(', '))}</div>`).join('')}</div>`;
+    if (pbs.length) h += `<div class="card"><b>Marcas personales</b><div class="small">${pbs.slice().sort((x, y) => x.dist - y.dist).map(p => p.dist + ' m: ' + fmtT(p.time).replace('.', ',')).join(' · ')}</div></div>`;
+    const pc = {}; ws.forEach(w => (w.pains || []).forEach(z => { pc[z] = (pc[z] || 0) + 1; }));
+    if (Object.keys(pc).length) h += `<div class="card"><b>Molestias</b><div class="small">${Object.keys(pc).map(z => z + ' (' + pc[z] + ')').join(' · ')}</div></div>`;
+    h += `<div class="row noprint"><button class="btn pri grow" data-act="repprint">📄 Guardar PDF</button><button class="btn grow" data-act="repshare">Compartir texto</button></div>
+      <p class="tiny muted noprint">"Guardar PDF" abre la hoja de impresión del iPhone: pulsa Compartir (arriba) → Guardar en Archivos o envíalo por WhatsApp.</p>`;
+    $app.innerHTML = h;
+  }
+  function reportText() {
+    const [a, b, label] = reportRange(S.repKind || 'cycle');
+    const ws = workouts.filter(w => w.date >= a && w.date <= b).sort((x, y) => x.date.localeCompare(y.date));
+    let t = `INFORME · ${label} (${fmtDate(a)} – ${fmtDate(b)})\n`;
+    ws.forEach(w => { t += '\n' + shareText(w).trim() + '\n'; });
+    return t;
   }
 
   // ---------- acciones ----------
@@ -1254,6 +1480,36 @@
       case 'expand': el.classList.toggle('clamp'); break;
       case 'toggle-edit': S.edit = !S.edit; render(); if (S.edit) toast('Modo edición activado'); break;
       case 'settings': S.view = 'settings'; render(); window.scrollTo(0, 0); break;
+      case 'repeatw': {
+        const src = workouts.find(x => x.id === S.detailId); if (!src) break;
+        if (draft.stage === 'form' && draft.workout && !confirm('Tienes un entreno sin guardar. ¿Reemplazarlo?')) break;
+        draft = { stage: 'form', raw: src.raw, date: todayISO(), parsed: null, includeCommon: true, workout: resetWorkout(src), editingId: null };
+        persistDraft(); S.view = 'input'; S.edit = false; render(); window.scrollTo(0, 0); toast('Entreno copiado con fecha de hoy'); break;
+      }
+      case 'report': S.view = 'report'; render(); window.scrollTo(0, 0); break;
+      case 'repkind': S.repKind = el.dataset.k; render(); break;
+      case 'repprint': window.print(); break;
+      case 'repshare': { const t = reportText(); if (navigator.share) navigator.share({ text: t }).catch(() => {}); else copyText(t, 'Informe copiado'); break; }
+      case 'compnew': S.compDraft = { id: uid(), name: '', place: '', date: '', venue: 'aire', priority: 'B', events: [{ prueba: '', objetivo: '', resultado: '', puesto: '', viento: '' }], notes: '' }; S.view = 'comp'; render(); window.scrollTo(0, 0); break;
+      case 'compopen': S.compDraft = JSON.parse(JSON.stringify(comps.find(x => x.id === el.dataset.id))); S.view = 'comp'; render(); window.scrollTo(0, 0); break;
+      case 'compback': S.view = 'progress'; S.compDraft = null; render(); break;
+      case 'cprio': S.compDraft.priority = el.dataset.v; render(); break;
+      case 'cevadd': S.compDraft.events.push({ prueba: '', objetivo: '', resultado: '', puesto: '', viento: '' }); render(); break;
+      case 'cevdel': S.compDraft.events.splice(+el.dataset.i, 1); render(); break;
+      case 'compsave': saveComp(); break;
+      case 'compdel': if (confirm('¿Borrar esta competición?')) { comps = comps.filter(x => x.id !== S.compDraft.id); save(LS_COMP, comps); S.view = 'progress'; render(); } break;
+      case 'wind': W.windFeel = W.windFeel === el.dataset.v ? '' : el.dataset.v; persistDraft(); render(); break;
+      case 'addweather': { const w = workouts.find(x => x.id === S.detailId); if (w) { const dd = daysFromToday(w.date); if (dd < -90) toast('Solo hay datos de los últimos 3 meses'); else { toast('Buscando el clima…'); addWeatherToWorkout(w.id); } } break; }
+      case 'setloc': {
+        const q = (document.getElementById('loc-q').value || '').trim(); if (!q) break;
+        geocode(q).then(g => { if (!g) { toast('No encuentro esa ciudad'); return; } settings.loc = g; save(LS_SET, settings); toast('📍 ' + g.name); render(); }).catch(() => toast('Sin conexión'));
+        break;
+      }
+      case 'geoloc':
+        if (!navigator.geolocation) { toast('Tu móvil no da la ubicación'); break; }
+        navigator.geolocation.getCurrentPosition(pos => { settings.loc = { lat: +pos.coords.latitude.toFixed(3), lon: +pos.coords.longitude.toFixed(3), name: 'Mi ubicación' }; save(LS_SET, settings); toast('📍 Ubicación guardada'); render(); }, () => toast('No se pudo obtener la ubicación'), { timeout: 10000 });
+        break;
+      case 'delloc': delete settings.loc; save(LS_SET, settings); render(); break;
       case 'ptarget': if (setPartTarget(W.parts[+el.dataset.p])) { persistDraft(); render(); } break;
       case 'dur': W.dur = +el.dataset.v; persistDraft(); render(); break;
       case 'pain': {
@@ -1277,7 +1533,7 @@
         if (!draft.quickRpe) { toast('Elige el esfuerzo (RPE) del 1 al 10'); const el = document.querySelector('[data-act=quickrpe]'); if (el) el.parentNode.classList.add('need'); break; }
         const w = quickWorkout(txt, draft.quickRpe); w.id = uid(); w.savedAt = Date.now();
         workouts.push(w); persistW(); draft.quick = ''; draft.quickRpe = null; persistDraft();
-        S.view = 'detail'; S.detailId = w.id; render(); window.scrollTo(0, 0); toast('Apuntado ✓ (puedes editarlo)'); break;
+        S.view = 'detail'; S.detailId = w.id; render(); window.scrollTo(0, 0); toast('Apuntado ✓ (puedes editarlo)'); addWeatherToWorkout(w.id); break;
       }
       case 'editdist': {
         const { p, rep } = getRep(el); const old = rep.label;
@@ -1358,6 +1614,9 @@
     const el = e.target;
     if (el.id === 'raw') { draft.raw = el.value; persistDraft(); return; }
     if (el.id === 'quick') { draft.quick = el.value; persistDraft(); return; }
+    if (el.id === 'hsearch') { S.q = el.value; const hl = document.getElementById('hlist'); if (hl) hl.innerHTML = S.q.trim() ? searchResults(S.q) : weeksHtml(); return; }
+    if (S.compDraft && el.id && el.id.startsWith('cf-')) { S.compDraft[el.id.slice(3)] = el.value; return; }
+    if (S.compDraft && el.dataset.cev != null) { S.compDraft.events[+el.dataset.cev][el.dataset.f] = el.value; return; }
     if (el.id === 'comment') { draft.workout.comment = el.value; persistDraft(); return; }
     if (el.id === 'dur') { draft.workout.dur = parseInt(el.value, 10) || null; persistDraft(); return; }
     const a = el.dataset.act;
@@ -1379,6 +1638,7 @@
     if (el.id === 'date') { draft.date = el.value || todayISO(); persistDraft(); render(); }
     if (el.id === 'fdate') { draft.workout.date = el.value || draft.workout.date; draft.date = draft.workout.date; persistDraft(); render(); }
     if (el.id === 'inclCommon') { draft.includeCommon = el.checked; persistDraft(); }
+    if (S.compDraft && (el.id === 'cf-date' || el.id === 'cf-venue')) { S.compDraft[el.id.slice(3)] = el.value; if (el.id === 'cf-date') render(); }
     gymChange(el); calcChange(el);
   });
   $app.addEventListener('keydown', e => {
@@ -1416,6 +1676,7 @@
     draft = newDraft(); S.edit = false; persistDraft();
     S.view = 'detail'; S.detailId = w.id; render(); window.scrollTo(0, 0);
     toast('Entreno guardado ✓');
+    if (!w.weather) addWeatherToWorkout(w.id);
   }
 
   function exportData() {
