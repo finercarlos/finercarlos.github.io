@@ -122,6 +122,7 @@ h3{font-size:17px;margin:0 0 4px;color:var(--acc2)}
 .bar{flex:1;height:6px;background:var(--card2);border-radius:4px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--ok));width:0}
 details summary{cursor:pointer;color:var(--mut);font-size:13px;margin-bottom:6px}
+@media print{header,nav,.noprint,.toast{display:none!important}body{background:#fff;color:#000;padding:0}main{max-width:none;padding:0}.card{background:#fff;border:1px solid #bbb;break-inside:avoid;color:#000}.muted,.small.muted,.tiny.muted{color:#444!important}.stat div{background:#f2f2f2}}
 </style>
 </head>
 <body>
@@ -136,8 +137,8 @@ details summary{cursor:pointer;color:var(--mut);font-size:13px;margin-bottom:6px
 <div class="toast" id="toast"></div>
 <input type="file" id="importfile" accept="application/json,.json" hidden>
 <input type="file" id="photofile" accept="image/*" multiple hidden>
-<script src="parser.js?v=12"></script>
-<script src="gym-parser.js?v=12"></script>
-<script src="app.js?v=12"></script>
+<script src="parser.js?v=13"></script>
+<script src="gym-parser.js?v=13"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>
